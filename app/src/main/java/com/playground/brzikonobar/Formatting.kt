@@ -72,3 +72,7 @@ fun exportFileName(
     zoneId: ZoneId = ZoneId.systemDefault(),
 ): String = "prodaja_${now.atZone(zoneId).toLocalDate()}.csv"
 
+fun priceListFileName(
+    now: Instant = Instant.now(),
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String = "cjenik_${now.atZone(zoneId).toLocalDate()}.csv"

@@ -9,6 +9,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.SetOptions
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import java.util.UUID
@@ -39,6 +40,7 @@ data class CloudInvitePayload(
     val projectId: String,
     val cafeId: String,
     val inviteCode: String,
+    val role: String = "waiter",
 )
 
 data class CloudReceiptLine(
@@ -57,22 +59,30 @@ data class CloudReceiptItemLine(
 
 data class CloudCatalogProductDraft(
     val categoryId: Long,
+    val categoryName: String,
     val name: String,
     val priceCents: Int,
     val emoji: String,
     val accentColor: Long,
     val sortOrder: Int,
+    val isActive: Boolean,
+    val stockQuantityUnits: Int,
+    val stockUpdatedAtMillis: Long,
 )
 
 data class CloudCatalogProduct(
     val cafeId: String,
     val id: String,
     val categoryId: Long,
+    val categoryName: String,
     val name: String,
     val priceCents: Int,
     val emoji: String,
     val accentColor: Long,
     val sortOrder: Int,
+    val isActive: Boolean,
+    val stockQuantityUnits: Int,
+    val stockUpdatedAtMillis: Long,
 )
 
 data class CloudReceiptItem(
@@ -81,6 +91,7 @@ data class CloudReceiptItem(
     val waiterName: String,
     val createdAtMillis: Long,
     val totalCents: Int,
+    val note: String,
     val items: List<CloudReceiptItemLine>,
     val itemsSummary: String,
 )
@@ -149,6 +160,7 @@ class CloudSyncService(
                 mapOf(
                     "code" to inviteCode,
                     "active" to true,
+                    "role" to "waiter",
                     "createdAt" to now,
                 ),
             )
@@ -167,6 +179,7 @@ class CloudSyncService(
     suspend fun refreshInvite(
         config: CloudConfig,
         session: CloudSession,
+        role: String = "waiter",
     ): String {
         val inviteCode = newInviteCode()
         firestore(config)
@@ -178,6 +191,7 @@ class CloudSyncService(
                 mapOf(
                     "code" to inviteCode,
                     "active" to true,
+                    "role" to role,
                     "createdAt" to FieldValue.serverTimestamp(),
                 ),
             )
@@ -202,6 +216,10 @@ class CloudSyncService(
 
         if (!invite.exists() || invite.getBoolean("active") != true) {
             error("QR code više nije valjan.")
+        }
+        val inviteRole = invite.getString("role").orEmpty().ifBlank { "waiter" }
+        if (inviteRole != "waiter") {
+            error("Ovaj QR nije za spajanje konobara.")
         }
 
         val cafe = cafeRef.get().await()
@@ -237,6 +255,7 @@ class CloudSyncService(
         session: CloudSession,
         receiptNumber: String,
         totalCents: Int,
+        note: String,
         lines: List<CloudReceiptLine>,
     ) {
         if (session.cafeId.isBlank() || session.userId.isBlank()) {
@@ -255,6 +274,7 @@ class CloudSyncService(
                     "role" to session.userRole,
                     "createdAt" to System.currentTimeMillis(),
                     "totalCents" to totalCents,
+                    "note" to note,
                     "items" to lines.map { line ->
                         mapOf(
                             "productId" to line.productId,
@@ -268,32 +288,42 @@ class CloudSyncService(
             .await()
     }
 
-    suspend fun addCatalogProduct(
+    suspend fun upsertCatalogProduct(
         config: CloudConfig,
         session: CloudSession,
+        cloudProductId: String?,
         product: CloudCatalogProductDraft,
     ): String {
         if (session.userRole != "admin") {
             error("Samo admin može spremati artikle u cloud.")
         }
 
-        val document = firestore(config)
+        val collection = firestore(config)
             .collection("cafes")
             .document(session.cafeId)
             .collection("catalogProducts")
-            .document()
+        val document = if (cloudProductId.isNullOrBlank()) {
+            collection.document()
+        } else {
+            collection.document(cloudProductId)
+        }
 
         document.set(
             mapOf(
                 "categoryId" to product.categoryId,
+                "categoryName" to product.categoryName,
                 "name" to product.name,
                 "priceCents" to product.priceCents,
                 "emoji" to product.emoji,
                 "accentColor" to product.accentColor,
                 "sortOrder" to product.sortOrder,
+                "isActive" to product.isActive,
+                "stockQuantityUnits" to product.stockQuantityUnits,
+                "stockUpdatedAt" to product.stockUpdatedAtMillis,
                 "createdByUid" to session.userId,
                 "updatedAt" to System.currentTimeMillis(),
             ),
+            SetOptions.merge(),
         ).await()
 
         return document.id
@@ -371,16 +401,46 @@ class CloudSyncService(
         }
     }
 
+    suspend fun deleteAllReceipts(
+        config: CloudConfig,
+        session: CloudSession,
+    ) {
+        if (session.userRole != "admin") {
+            error("Samo admin može obrisati sve račune.")
+        }
+
+        val firestore = firestore(config)
+        val collection = firestore
+            .collection("cafes")
+            .document(session.cafeId)
+            .collection("receipts")
+
+        while (true) {
+            val snapshot = collection.limit(400).get().await()
+            if (snapshot.isEmpty) {
+                break
+            }
+
+            firestore.runBatch { batch ->
+                snapshot.documents.forEach { document ->
+                    batch.delete(document.reference)
+                }
+            }.await()
+        }
+    }
+
     fun buildInvitePayload(
         config: CloudConfig,
         cafeId: String,
         inviteCode: String,
+        role: String = "waiter",
     ): String = JSONObject()
         .put("apiKey", config.apiKey)
         .put("appId", config.appId)
         .put("projectId", config.projectId)
         .put("cafeId", cafeId)
         .put("inviteCode", inviteCode)
+        .put("role", role)
         .toString()
 
     fun parseInvitePayload(raw: String): CloudInvitePayload {
@@ -398,6 +458,7 @@ class CloudSyncService(
             projectId = projectId,
             cafeId = json.getString("cafeId"),
             inviteCode = json.getString("inviteCode"),
+            role = json.optString("role", "waiter").ifBlank { "waiter" },
         )
     }
 
@@ -464,6 +525,7 @@ class CloudSyncService(
             waiterName = getString("waiterName").orEmpty(),
             createdAtMillis = getLong("createdAt") ?: 0L,
             totalCents = (getLong("totalCents") ?: 0L).toInt(),
+            note = getString("note").orEmpty(),
             items = items,
             itemsSummary = items.joinToString(", ") { item -> "${item.name} x${item.quantity}" },
         )
@@ -471,8 +533,11 @@ class CloudSyncService(
 
     private fun DocumentSnapshot.toCloudCatalogProduct(cafeId: String): CloudCatalogProduct? {
         val categoryId = getLong("categoryId") ?: return null
+        val categoryName = getString("categoryName")
+            .orEmpty()
+            .ifBlank { fallbackCategoryName(categoryId) }
         val name = getString("name").orEmpty()
-        if (name.isBlank()) {
+        if (name.isBlank() || categoryName.isBlank()) {
             return null
         }
 
@@ -480,11 +545,23 @@ class CloudSyncService(
             cafeId = cafeId,
             id = id,
             categoryId = categoryId,
+            categoryName = categoryName,
             name = name,
             priceCents = (getLong("priceCents") ?: 0L).toInt(),
             emoji = getString("emoji").orEmpty().ifBlank { "🥤" },
             accentColor = (getLong("accentColor") ?: 0L),
             sortOrder = (getLong("sortOrder") ?: 0L).toInt(),
+            isActive = getBoolean("isActive") ?: true,
+            stockQuantityUnits = (getLong("stockQuantityUnits") ?: 0L).toInt(),
+            stockUpdatedAtMillis = getLong("stockUpdatedAt") ?: 0L,
         )
+    }
+
+    private fun fallbackCategoryName(categoryId: Long): String = when (categoryId) {
+        1L -> "Kava"
+        2L -> "Pivo"
+        3L -> "Bezalkoholno"
+        4L -> "Bar"
+        else -> "Kategorija $categoryId"
     }
 }

@@ -8,17 +8,25 @@ import com.playground.siply.data.AppStateEntity
 import com.playground.siply.data.CatalogRow
 import com.playground.siply.data.CloudReceiptHistoryItem
 import com.playground.siply.data.DashboardSalesItem
-import com.playground.siply.data.DailyStatsRow
 import com.playground.siply.data.ExportPayload
+import com.playground.siply.data.InventoryItem
 import com.playground.siply.data.LastReceiptInfo
+import com.playground.siply.data.LocalSalesLineItem
 import com.playground.siply.data.PosRepository
+import com.playground.siply.data.PriceListVersionItem
+import com.playground.siply.data.ProcurementHistoryItem
 import com.playground.siply.data.ReceiptDraftLine
 import com.playground.siply.data.ReceiptHistoryItem
 import com.playground.siply.formatCurrency
+import com.playground.siply.formatDateTime
 import com.playground.siply.formatReceiptNumber
-import com.playground.siply.formatResetLabel
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +36,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -66,15 +75,49 @@ data class DailyStatsUi(
 data class ReceiptHistoryUi(
     val id: Long,
     val receiptNumber: String,
+    val createdAtMillis: Long,
     val createdAtLabel: String,
+    val totalCents: Int,
     val totalLabel: String,
     val itemsCountLabel: String,
+    val note: String,
 )
 
 data class DashboardSalesUi(
     val name: String,
     val quantityLabel: String,
     val totalLabel: String,
+)
+
+data class PriceListVersionUi(
+    val id: Long,
+    val name: String,
+    val effectiveDateLabel: String,
+    val createdAtLabel: String,
+    val itemsCountLabel: String,
+    val isActive: Boolean,
+)
+
+data class InventoryUi(
+    val productId: Long,
+    val categoryId: Long,
+    val name: String,
+    val emoji: String,
+    val unitPriceLabel: String,
+    val quantityUnits: Int,
+    val quantityLabel: String,
+    val stockValueLabel: String,
+    val updatedAtLabel: String,
+    val isLowStock: Boolean,
+    val isOutOfStock: Boolean,
+)
+
+data class ProcurementHistoryUi(
+    val id: Long,
+    val productName: String,
+    val quantityLabel: String,
+    val createdAtLabel: String,
+    val note: String,
 )
 
 data class StaffOverviewUi(
@@ -111,9 +154,22 @@ data class CloudReceiptUi(
     val id: String,
     val receiptNumber: String,
     val waiterName: String,
+    val createdAtMillis: Long,
     val createdAtLabel: String,
+    val totalCents: Int,
     val totalLabel: String,
+    val note: String,
     val itemsSummary: String,
+)
+
+data class NotedReceiptUi(
+    val receiptNumber: String,
+    val waiterName: String,
+    val createdAtMillis: Long,
+    val createdAtLabel: String,
+    val totalCents: Int,
+    val totalLabel: String,
+    val note: String,
 )
 
 data class PosUiState(
@@ -127,6 +183,13 @@ data class PosUiState(
     val subtotalLabel: String = formatCurrency(0),
     val cartItemsCount: Int = 0,
     val dailyStats: DailyStatsUi = DailyStatsUi(),
+    val dashboardStartDateKey: String = LocalDate.now().toString(),
+    val dashboardEndDateKey: String = LocalDate.now().toString(),
+    val dashboardSelectedDateLabel: String = LocalDate.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale("hr", "HR"))),
+    val dashboardWaiterOptions: List<String> = emptyList(),
+    val selectedDashboardWaiterName: String = "",
+    val dashboardHourlyRevenue: List<ComparisonBarUi> = emptyList(),
+    val dashboardIsSingleDay: Boolean = true,
     val staffOverview: StaffOverviewUi = StaffOverviewUi(),
     val categorySales: List<DashboardSalesUi> = emptyList(),
     val productSales: List<DashboardSalesUi> = emptyList(),
@@ -134,8 +197,15 @@ data class PosUiState(
     val waiterRevenueComparison: List<ComparisonBarUi> = emptyList(),
     val waiterItemsComparison: List<ComparisonBarUi> = emptyList(),
     val waiterAnalytics: List<WaiterAnalyticsUi> = emptyList(),
+    val notedReceipts: List<NotedReceiptUi> = emptyList(),
+    val notedReceiptsTotalLabel: String = formatCurrency(0),
     val receiptHistory: List<ReceiptHistoryUi> = emptyList(),
     val cloudReceiptHistory: List<CloudReceiptUi> = emptyList(),
+    val priceListVersions: List<PriceListVersionUi> = emptyList(),
+    val inventoryItems: List<InventoryUi> = emptyList(),
+    val inventoryPriceListLabel: String = "Trenutne cijene artikala",
+    val inventoryTotalValueLabel: String = formatCurrency(0),
+    val procurementHistory: List<ProcurementHistoryUi> = emptyList(),
     val cloudCafeName: String = "",
     val cloudUserName: String = "",
     val cloudUserRole: String = "",
@@ -145,9 +215,30 @@ data class PosUiState(
 private data class PosCoreInputs(
     val rows: List<CatalogRow>,
     val state: AppStateEntity,
-    val stats: DailyStatsRow,
+    val dashboardStartDate: LocalDate,
+    val dashboardEndDate: LocalDate,
+    val dashboardWaiterFilter: String?,
     val selectedId: Long?,
     val cart: Map<Long, Int>,
+)
+
+private data class DashboardDateRange(
+    val start: LocalDate,
+    val end: LocalDate,
+)
+
+private data class PosHistoryInputs(
+    val history: List<ReceiptHistoryItem>,
+    val cloudHistory: List<CloudReceiptHistoryItem>,
+    val localSalesLines: List<LocalSalesLineItem>,
+)
+
+private data class PosInventoryInputs(
+    val items: List<InventoryItem>,
+)
+
+private data class PosProcurementInputs(
+    val items: List<ProcurementHistoryItem>,
 )
 
 private data class ProductAggregate(
@@ -168,8 +259,22 @@ class MainViewModel(
     private val repository: PosRepository,
 ) : ViewModel() {
     private val selectedCategoryId = MutableStateFlow<Long?>(null)
+    private val selectedDashboardStartDate = MutableStateFlow(LocalDate.now())
+    private val selectedDashboardEndDate = MutableStateFlow(LocalDate.now())
+    private val selectedDashboardWaiter = MutableStateFlow<String?>(null)
     private val cartQuantities = MutableStateFlow<Map<Long, Int>>(linkedMapOf())
     private val _messages = MutableSharedFlow<String>()
+    private val dashboardDateFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy", Locale("hr", "HR"))
+    private val dashboardDateRange = combine(
+        selectedDashboardStartDate,
+        selectedDashboardEndDate,
+    ) { start, end ->
+        normalizeDashboardRange(start, end)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        DashboardDateRange(LocalDate.now(), LocalDate.now()),
+    )
 
     private val catalogRows = repository.observeCatalogRows()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -177,22 +282,22 @@ class MainViewModel(
     private val appState = repository.observeAppState()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppStateEntity())
 
-    private val dailyStats = appState
-        .flatMapLatest { repository.observeDailyStats(it.statsAnchorEpochMs) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DailyStatsRow(0, 0))
-
     private val receiptHistory = repository.observeReceiptHistory()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    private val categorySales = appState
-        .flatMapLatest { repository.observeCategorySales(it.statsAnchorEpochMs) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    private val productSales = appState
-        .flatMapLatest { repository.observeProductSales(it.statsAnchorEpochMs) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
     private val cloudReceiptHistory = repository.observeCloudReceiptHistory()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val localSalesLines = repository.observeLocalSalesLines()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val priceListVersions = repository.observePriceListVersions()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val inventoryItems = repository.observeInventoryItems()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val procurementHistory = repository.observeProcurementHistory()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val messages = _messages.asSharedFlow()
@@ -200,38 +305,95 @@ class MainViewModel(
     private val coreInputs = combine(
         catalogRows,
         appState,
-        dailyStats,
+        dashboardDateRange,
+        selectedDashboardWaiter,
         selectedCategoryId,
         cartQuantities,
-    ) { rows, state, stats, selectedId, cart ->
-        PosCoreInputs(rows, state, stats, selectedId, cart)
+    ) { values ->
+        val rows = values[0] as List<CatalogRow>
+        val state = values[1] as AppStateEntity
+        val dashboardRange = values[2] as DashboardDateRange
+        val dashboardWaiterFilter = values[3] as String?
+        val selectedId = values[4] as Long?
+        val cart = values[5] as Map<Long, Int>
+        PosCoreInputs(
+            rows = rows,
+            state = state,
+            dashboardStartDate = dashboardRange.start,
+            dashboardEndDate = dashboardRange.end,
+            dashboardWaiterFilter = dashboardWaiterFilter,
+            selectedId = selectedId,
+            cart = cart,
+        )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         PosCoreInputs(
             rows = emptyList(),
             state = AppStateEntity(),
-            stats = DailyStatsRow(0, 0),
+            dashboardStartDate = LocalDate.now(),
+            dashboardEndDate = LocalDate.now(),
+            dashboardWaiterFilter = null,
             selectedId = null,
             cart = emptyMap(),
         ),
     )
 
+    private val historyInputs = combine(
+        receiptHistory,
+        cloudReceiptHistory,
+        localSalesLines,
+    ) { history, cloudHistory, localLines ->
+        PosHistoryInputs(
+            history = history,
+            cloudHistory = cloudHistory,
+            localSalesLines = localLines,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        PosHistoryInputs(
+            history = emptyList(),
+            cloudHistory = emptyList(),
+            localSalesLines = emptyList(),
+        ),
+    )
+
+    private val inventoryInputs = inventoryItems.map { items ->
+        PosInventoryInputs(items = items)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        PosInventoryInputs(items = emptyList()),
+    )
+
+    private val procurementInputs = procurementHistory.map { items ->
+        PosProcurementInputs(items = items)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        PosProcurementInputs(items = emptyList()),
+    )
+
     val uiState = combine(
         coreInputs,
-        receiptHistory,
-        categorySales,
-        productSales,
-        cloudReceiptHistory,
-    ) { core, history, categories, products, cloudHistory ->
+        historyInputs,
+        priceListVersions,
+        inventoryInputs,
+        procurementInputs,
+    ) { core, historyInputs, versions, inventoryInputs, procurementInputs ->
         buildUiState(
             rows = core.rows,
             state = core.state,
-            stats = core.stats,
-            history = history,
-            categorySales = categories,
-            productSales = products,
-            cloudHistory = cloudHistory,
+            dashboardStartDate = core.dashboardStartDate,
+            dashboardEndDate = core.dashboardEndDate,
+            dashboardWaiterFilter = core.dashboardWaiterFilter,
+            history = historyInputs.history,
+            cloudHistory = historyInputs.cloudHistory,
+            localSalesLines = historyInputs.localSalesLines,
+            priceListVersions = versions,
+            inventoryItems = inventoryInputs.items,
+            procurementHistory = procurementInputs.items,
             selectedId = core.selectedId,
             cart = core.cart,
         )
@@ -269,6 +431,16 @@ class MainViewModel(
         selectedCategoryId.value = categoryId
     }
 
+    fun selectDashboardRange(start: LocalDate, end: LocalDate) {
+        val normalized = normalizeDashboardRange(start, end)
+        selectedDashboardStartDate.value = normalized.start
+        selectedDashboardEndDate.value = normalized.end
+    }
+
+    fun selectDashboardWaiter(waiterName: String?) {
+        selectedDashboardWaiter.value = waiterName?.takeIf { it.isNotBlank() }
+    }
+
     fun addProduct(productId: Long) {
         cartQuantities.update { current ->
             LinkedHashMap(current).apply {
@@ -290,7 +462,7 @@ class MainViewModel(
         }
     }
 
-    fun saveReceipt() {
+    fun saveReceipt(note: String = "") {
         viewModelScope.launch {
             val draft = buildDraftLines()
             if (draft.isEmpty()) {
@@ -298,7 +470,7 @@ class MainViewModel(
                 return@launch
             }
 
-            val result = repository.saveReceipt(draft)
+            val result = repository.saveReceipt(draft, note)
             if (result != null) {
                 cartQuantities.value = linkedMapOf()
                 val cloudNote = if (result.cloudSynced) " i syncan u cloud." else "."
@@ -338,6 +510,97 @@ class MainViewModel(
         return true
     }
 
+    suspend fun setInventoryQuantity(
+        productId: Long,
+        quantityInput: String,
+    ): Boolean {
+        val quantity = quantityInput.trim().toIntOrNull()
+        if (quantity == null) {
+            _messages.emit("Upiši količinu kao cijeli broj.")
+            return false
+        }
+        if (quantity < 0) {
+            _messages.emit("Količina ne može biti manja od nule.")
+            return false
+        }
+
+        return runCatching {
+            repository.setInventoryQuantity(productId, quantity)
+            _messages.emit("Stanje skladišta je spremljeno.")
+            true
+        }.getOrElse {
+            _messages.emit(it.message ?: "Spremanje stanja skladišta nije uspjelo.")
+            false
+        }
+    }
+
+    suspend fun setInventoryQuantities(
+        quantityInputs: Map<Long, String>,
+    ): Boolean {
+        if (quantityInputs.isEmpty()) {
+            _messages.emit("Nema promjena za spremanje.")
+            return false
+        }
+
+        val parsed = linkedMapOf<Long, Int>()
+        quantityInputs.forEach { (productId, input) ->
+            val quantity = input.trim().toIntOrNull()
+            if (quantity == null) {
+                _messages.emit("Sve količine moraju biti cijeli brojevi.")
+                return false
+            }
+            if (quantity < 0) {
+                _messages.emit("Količina ne može biti manja od nule.")
+                return false
+            }
+            parsed[productId] = quantity
+        }
+
+        return runCatching {
+            repository.setInventoryQuantities(parsed)
+            _messages.emit("Skladište je spremljeno.")
+            true
+        }.getOrElse {
+            _messages.emit(it.message ?: "Spremanje skladišta nije uspjelo.")
+            false
+        }
+    }
+
+    suspend fun addProcurementEntries(
+        quantityInputs: Map<Long, String>,
+        note: String,
+    ): Boolean {
+        val parsed = linkedMapOf<Long, Int>()
+        quantityInputs.forEach { (productId, input) ->
+            val quantity = input.trim().toIntOrNull()
+            if (quantity == null) {
+                _messages.emit("Sve ulazne količine moraju biti cijeli brojevi.")
+                return false
+            }
+            if (quantity < 0) {
+                _messages.emit("Ulazna količina ne može biti negativna.")
+                return false
+            }
+            if (quantity > 0) {
+                parsed[productId] = quantity
+            }
+        }
+
+        if (parsed.isEmpty()) {
+            _messages.emit("Upiši barem jedan ulaz robe.")
+            return false
+        }
+
+        return runCatching {
+            repository.addProcurementEntries(parsed, note)
+            _messages.emit("Nabava je spremljena u skladište.")
+            true
+        }.getOrElse {
+            _messages.emit(it.message ?: "Spremanje nabave nije uspjelo.")
+            false
+        }
+    }
+
     suspend fun createOnlineCafe(
         cafeName: String,
         adminName: String,
@@ -364,6 +627,15 @@ class MainViewModel(
     }.getOrElse {
         _messages.emit(it.message ?: "Ne mogu generirati novi waiter QR.")
         false
+    }
+
+    suspend fun refreshWebAdminInvitePayload(): String? = runCatching {
+        val payload = repository.refreshWebAdminInvitePayload()
+        _messages.emit("Generiran je web admin kod.")
+        payload
+    }.getOrElse {
+        _messages.emit(it.message ?: "Ne mogu generirati web admin kod.")
+        null
     }
 
     suspend fun joinCafeAsWaiter(
@@ -397,6 +669,68 @@ class MainViewModel(
         return payload
     }
 
+    suspend fun buildCompleteSalesExportPayload(): ExportPayload? {
+        val payload = repository.buildCompleteSalesExport(cloudReceiptHistory.value)
+        if (payload == null) {
+            _messages.emit("Nema prodaje za potpuni export.")
+        }
+        return payload
+    }
+
+    suspend fun buildPriceListExportPayload(): ExportPayload? {
+        val payload = repository.buildPriceListExport()
+        if (payload == null) {
+            _messages.emit("Nema aktivnog cjenika za export.")
+        }
+        return payload
+    }
+
+    suspend fun buildBackupExportPayload(): ExportPayload? = runCatching {
+        repository.buildDatabaseBackup()
+    }.getOrElse {
+        _messages.emit(it.message ?: "Backup nije uspio.")
+        null
+    }
+
+    suspend fun restoreBackup(content: String): Boolean = runCatching {
+        repository.restoreDatabaseFromBackup(content)
+        _messages.emit("Backup je uspješno vraćen.")
+        true
+    }.getOrElse {
+        _messages.emit(it.message ?: "Restore backupa nije uspio.")
+        false
+    }
+
+    suspend fun saveCurrentPriceListVersion(label: String): Boolean = runCatching {
+        repository.saveCurrentPriceListVersion(label)
+        _messages.emit("Cjenik je spremljen kao nova verzija.")
+        true
+    }.getOrElse {
+        _messages.emit(it.message ?: "Spremanje cjenika nije uspjelo.")
+        false
+    }
+
+    suspend fun importPriceList(
+        csvContent: String,
+        label: String,
+    ): Boolean = runCatching {
+        repository.importPriceList(csvContent, label)
+        _messages.emit("Cjenik je importan i postavljen kao aktivan.")
+        true
+    }.getOrElse {
+        _messages.emit(it.message ?: "Import cjenika nije uspio.")
+        false
+    }
+
+    suspend fun activatePriceList(versionId: Long): Boolean = runCatching {
+        repository.activatePriceListVersion(versionId)
+        _messages.emit("Cjenik je aktiviran.")
+        true
+    }.getOrElse {
+        _messages.emit(it.message ?: "Aktivacija cjenika nije uspjela.")
+        false
+    }
+
     suspend fun loadLastReceiptInfo(): LastReceiptInfo? {
         val info = repository.peekLastReceiptInfo()
         if (info == null) {
@@ -412,6 +746,18 @@ class MainViewModel(
                 _messages.emit("Nema spremljenog računa.")
             } else {
                 _messages.emit("Obrisan je račun ${deleted.receiptNumber}.")
+            }
+        }
+    }
+
+    fun clearAllSalesData() {
+        viewModelScope.launch {
+            runCatching {
+                repository.clearAllSalesData()
+            }.onSuccess {
+                _messages.emit("Sva prodaja i svi računi su obrisani.")
+            }.onFailure {
+                _messages.emit(it.message ?: "Brisanje svih prodaja nije uspjelo.")
             }
         }
     }
@@ -432,9 +778,17 @@ class MainViewModel(
     fun notifyExportSaved(success: Boolean, filename: String) {
         viewModelScope.launch {
             if (success) {
-                _messages.emit("CSV je spremljen kao $filename.")
+                _messages.emit("Datoteka je spremljena kao $filename.")
             } else {
-                _messages.emit("Spremanje CSV-a nije uspjelo.")
+                _messages.emit("Spremanje datoteke nije uspjelo.")
+            }
+        }
+    }
+
+    fun notifyPriceListImportHandled(success: Boolean, filename: String) {
+        viewModelScope.launch {
+            if (!success) {
+                _messages.emit("Import cjenika iz datoteke $filename nije uspio.")
             }
         }
     }
@@ -442,11 +796,15 @@ class MainViewModel(
     private fun buildUiState(
         rows: List<CatalogRow>,
         state: AppStateEntity,
-        stats: DailyStatsRow,
+        dashboardStartDate: LocalDate,
+        dashboardEndDate: LocalDate,
+        dashboardWaiterFilter: String?,
         history: List<ReceiptHistoryItem>,
-        categorySales: List<DashboardSalesItem>,
-        productSales: List<DashboardSalesItem>,
         cloudHistory: List<CloudReceiptHistoryItem>,
+        localSalesLines: List<LocalSalesLineItem>,
+        priceListVersions: List<PriceListVersionItem>,
+        inventoryItems: List<InventoryItem>,
+        procurementHistory: List<ProcurementHistoryItem>,
         selectedId: Long?,
         cart: Map<Long, Int>,
     ): PosUiState {
@@ -484,6 +842,37 @@ class MainViewModel(
                 )
             }
 
+        val inventorySourceForCategory = inventoryItems
+            .filter { item -> item.categoryId == activeCategoryId }
+        val inventoryForCategory = inventorySourceForCategory
+            .map { item ->
+                val quantity = item.quantityUnits
+                val stockValueCents = item.priceCents * quantity
+                InventoryUi(
+                    productId = item.productId,
+                    categoryId = item.categoryId,
+                    name = item.productName,
+                    emoji = item.emoji,
+                    unitPriceLabel = formatCurrency(item.priceCents),
+                    quantityUnits = quantity,
+                    quantityLabel = "$quantity kom",
+                    stockValueLabel = formatCurrency(stockValueCents),
+                    updatedAtLabel = if (item.updatedAtMillis > 0L) {
+                        formatDateTime(item.updatedAtMillis, ZoneId.systemDefault())
+                    } else {
+                        "Nije postavljeno"
+                    },
+                    isLowStock = quantity in 1..5,
+                    isOutOfStock = quantity <= 0,
+                )
+            }
+        val referencePriceList = priceListVersions.firstOrNull { version -> version.isActive }
+            ?: priceListVersions.firstOrNull()
+        val inventoryPriceListLabel = referencePriceList?.effectiveDateLabel ?: "Trenutne cijene artikala"
+        val inventoryTotalValueCents = inventorySourceForCategory.sumOf { item ->
+            item.quantityUnits * item.priceCents
+        }
+
         val cartItems = cart.entries
             .sortedBy { entry -> orderMap[entry.key] ?: Int.MAX_VALUE }
             .mapNotNull { entry ->
@@ -505,10 +894,49 @@ class MainViewModel(
             price * entry.value
         }
 
-        val waiterAggregates = linkedMapOf<String, WaiterAggregate>()
-        val staffProductAggregates = linkedMapOf<String, ProductAggregate>()
+        val productCategoryByName = rows
+            .groupBy { row -> row.productName.trim().lowercase() }
+            .mapValues { entry -> entry.value.firstOrNull()?.categoryName.orEmpty() }
+        val dashboardRangeLabel = formatDashboardRangeLabel(dashboardStartDate, dashboardEndDate)
+        val localReceiptsForRange = history.filter { item ->
+            isWithinRange(item.createdAtMillis, dashboardStartDate, dashboardEndDate)
+        }
+        val cloudReceiptsForRange = cloudHistory.filter { item ->
+            isWithinRange(item.createdAtMillis, dashboardStartDate, dashboardEndDate)
+        }
+        val localLinesForRange = localSalesLines.filter { line ->
+            isWithinRange(line.createdAtMillis, dashboardStartDate, dashboardEndDate)
+        }
 
-        cloudHistory.forEach { receipt ->
+        val waiterAggregates = linkedMapOf<String, WaiterAggregate>()
+
+        val adminName = when {
+            state.cloudUserRole == "admin" && state.cloudUserName.isNotBlank() -> state.cloudUserName
+            else -> "Admin"
+        }
+        val adminAggregate = if (localReceiptsForRange.isNotEmpty() || localLinesForRange.isNotEmpty()) {
+            waiterAggregates.getOrPut(adminName) {
+                WaiterAggregate(name = adminName)
+            }.apply {
+                receiptsCount = localReceiptsForRange.size
+                totalCents = localReceiptsForRange.sumOf { receipt -> receipt.totalCents }
+                itemsCount = 0
+                this.products.clear()
+            }
+        } else {
+            null
+        }
+
+        localLinesForRange.forEach { line ->
+            adminAggregate?.let { aggregate ->
+                aggregate.itemsCount += line.quantity
+                val adminProduct = aggregate.products.getOrPut(line.productName) { ProductAggregate() }
+                adminProduct.quantity += line.quantity
+                adminProduct.totalCents += line.lineTotalCents
+            }
+        }
+
+        cloudReceiptsForRange.forEach { receipt ->
             val waiterName = receipt.waiterName.ifBlank { "Nepoznati konobar" }
             val waiterAggregate = waiterAggregates.getOrPut(waiterName) {
                 WaiterAggregate(name = waiterName)
@@ -522,10 +950,6 @@ class MainViewModel(
                 val waiterProduct = waiterAggregate.products.getOrPut(item.name) { ProductAggregate() }
                 waiterProduct.quantity += item.quantity
                 waiterProduct.totalCents += item.lineTotalCents
-
-                val staffProduct = staffProductAggregates.getOrPut(item.name) { ProductAggregate() }
-                staffProduct.quantity += item.quantity
-                staffProduct.totalCents += item.lineTotalCents
             }
         }
 
@@ -535,11 +959,127 @@ class MainViewModel(
                 .thenBy { it.name },
         )
 
-        val staffTotalCents = sortedWaiters.sumOf { it.totalCents }
-        val staffReceiptsCount = sortedWaiters.sumOf { it.receiptsCount }
-        val staffItemsCount = sortedWaiters.sumOf { it.itemsCount }
-        val localTotalCents = stats.totalCents.toInt()
-        val localReceiptsCount = stats.receiptsCount.toInt()
+        val dashboardWaiterOptions = buildList {
+            add("Svi")
+            addAll(sortedWaiters.map { aggregate -> aggregate.name })
+        }
+        val activeDashboardWaiter = dashboardWaiterFilter?.takeIf { filter ->
+            sortedWaiters.any { aggregate -> aggregate.name == filter }
+        }
+        val filteredLocalReceiptsForRange = if (activeDashboardWaiter == null || activeDashboardWaiter == adminName) {
+            localReceiptsForRange
+        } else {
+            emptyList()
+        }
+        val filteredLocalLinesForRange = if (activeDashboardWaiter == null || activeDashboardWaiter == adminName) {
+            localLinesForRange
+        } else {
+            emptyList()
+        }
+        val filteredCloudReceiptsForRange = if (activeDashboardWaiter == null) {
+            cloudReceiptsForRange
+        } else {
+            cloudReceiptsForRange.filter { receipt ->
+                receipt.waiterName.ifBlank { "Nepoznati konobar" } == activeDashboardWaiter
+            }
+        }
+        val filteredWaiters = if (activeDashboardWaiter == null) {
+            sortedWaiters
+        } else {
+            sortedWaiters.filter { aggregate -> aggregate.name == activeDashboardWaiter }
+        }
+
+        val productAggregates = linkedMapOf<String, ProductAggregate>()
+        val categoryAggregates = linkedMapOf<String, ProductAggregate>()
+        filteredLocalLinesForRange.forEach { line ->
+            val product = productAggregates.getOrPut(line.productName) { ProductAggregate() }
+            product.quantity += line.quantity
+            product.totalCents += line.lineTotalCents
+
+            val category = categoryAggregates.getOrPut(line.categoryName) { ProductAggregate() }
+            category.quantity += line.quantity
+            category.totalCents += line.lineTotalCents
+        }
+        filteredCloudReceiptsForRange.forEach { receipt ->
+            receipt.items.forEach { item ->
+                val product = productAggregates.getOrPut(item.name) { ProductAggregate() }
+                product.quantity += item.quantity
+                product.totalCents += item.lineTotalCents
+
+                val categoryName = productCategoryByName[item.name.trim().lowercase()]
+                    ?.ifBlank { "Ostalo" }
+                    ?: "Ostalo"
+                val category = categoryAggregates.getOrPut(categoryName) { ProductAggregate() }
+                category.quantity += item.quantity
+                category.totalCents += item.lineTotalCents
+            }
+        }
+
+        val hourlyTotals = IntArray(24)
+        val hourlyReceipts = IntArray(24)
+        if (dashboardStartDate == dashboardEndDate) {
+            filteredLocalReceiptsForRange.forEach { receipt ->
+                val hour = Instant.ofEpochMilli(receipt.createdAtMillis)
+                    .atZone(ZoneId.systemDefault())
+                    .hour
+                hourlyTotals[hour] += receipt.totalCents
+                hourlyReceipts[hour] += 1
+            }
+            filteredCloudReceiptsForRange.forEach { receipt ->
+                val hour = Instant.ofEpochMilli(receipt.createdAtMillis)
+                    .atZone(ZoneId.systemDefault())
+                    .hour
+                hourlyTotals[hour] += receipt.totalCents
+                hourlyReceipts[hour] += 1
+            }
+        }
+
+        val staffTotalCents = filteredWaiters.sumOf { it.totalCents }
+        val staffReceiptsCount = filteredWaiters.sumOf { it.receiptsCount }
+        val staffItemsCount = filteredWaiters.sumOf { it.itemsCount }
+        val notedReceipts = buildList {
+            filteredLocalReceiptsForRange
+                .filter { receipt -> receipt.note.isNotBlank() }
+                .forEach { receipt ->
+                    add(
+                        NotedReceiptUi(
+                            receiptNumber = receipt.receiptNumber,
+                            waiterName = adminName,
+                            createdAtMillis = receipt.createdAtMillis,
+                            createdAtLabel = receipt.createdAtLabel,
+                            totalCents = receipt.totalCents,
+                            totalLabel = receipt.totalLabel,
+                            note = receipt.note,
+                        ),
+                    )
+                }
+            filteredCloudReceiptsForRange
+                .filter { receipt -> receipt.note.isNotBlank() }
+                .forEach { receipt ->
+                    add(
+                        NotedReceiptUi(
+                            receiptNumber = receipt.receiptNumber,
+                            waiterName = receipt.waiterName.ifBlank { "Nepoznati konobar" },
+                            createdAtMillis = receipt.createdAtMillis,
+                            createdAtLabel = receipt.createdAtLabel,
+                            totalCents = receipt.totalCents,
+                            totalLabel = receipt.totalLabel,
+                            note = receipt.note,
+                        ),
+                    )
+                }
+        }.sortedByDescending { receipt -> receipt.createdAtMillis }
+        val procurementHistoryUi = procurementHistory
+            .take(20)
+            .map { item ->
+                ProcurementHistoryUi(
+                    id = item.id,
+                    productName = item.productName,
+                    quantityLabel = "+${item.quantityUnits} kom",
+                    createdAtLabel = formatDateTime(item.createdAtMillis, ZoneId.systemDefault()),
+                    note = item.note,
+                )
+            }
 
         return PosUiState(
             loading = rows.isEmpty(),
@@ -552,32 +1092,51 @@ class MainViewModel(
             subtotalLabel = formatCurrency(subtotal),
             cartItemsCount = cart.values.sum(),
             dailyStats = DailyStatsUi(
-                totalLabel = formatCurrency(stats.totalCents.toInt()),
-                receiptsCountLabel = stats.receiptsCount.toString(),
-                resetLabel = formatResetLabel(state.statsAnchorEpochMs),
+                totalLabel = formatCurrency(staffTotalCents),
+                receiptsCountLabel = staffReceiptsCount.toString(),
+                resetLabel = "Za $dashboardRangeLabel",
             ),
+            dashboardStartDateKey = dashboardStartDate.toString(),
+            dashboardEndDateKey = dashboardEndDate.toString(),
+            dashboardSelectedDateLabel = dashboardRangeLabel,
+            dashboardWaiterOptions = dashboardWaiterOptions,
+            selectedDashboardWaiterName = activeDashboardWaiter.orEmpty(),
+            dashboardHourlyRevenue = buildHourlyComparisonBars(hourlyTotals, hourlyReceipts),
+            dashboardIsSingleDay = dashboardStartDate == dashboardEndDate,
             staffOverview = StaffOverviewUi(
                 waiterTotalLabel = formatCurrency(staffTotalCents),
                 waiterReceiptsLabel = staffReceiptsCount.toString(),
                 waiterItemsLabel = "$staffItemsCount kom",
-                combinedTotalLabel = formatCurrency(localTotalCents + staffTotalCents),
-                combinedReceiptsLabel = (localReceiptsCount + staffReceiptsCount).toString(),
+                combinedTotalLabel = formatCurrency(staffTotalCents),
+                combinedReceiptsLabel = staffReceiptsCount.toString(),
             ),
-            categorySales = categorySales.map { item ->
-                DashboardSalesUi(
-                    name = item.name,
-                    quantityLabel = item.quantityLabel,
-                    totalLabel = item.totalLabel,
+            categorySales = categoryAggregates.entries
+                .sortedWith(
+                    compareByDescending<Map.Entry<String, ProductAggregate>> { it.value.totalCents }
+                        .thenByDescending { it.value.quantity }
+                        .thenBy { it.key },
                 )
-            },
-            productSales = productSales.map { item ->
-                DashboardSalesUi(
-                    name = item.name,
-                    quantityLabel = item.quantityLabel,
-                    totalLabel = item.totalLabel,
+                .map { entry ->
+                    DashboardSalesUi(
+                        name = entry.key,
+                        quantityLabel = "${entry.value.quantity} kom",
+                        totalLabel = formatCurrency(entry.value.totalCents),
+                    )
+                },
+            productSales = productAggregates.entries
+                .sortedWith(
+                    compareByDescending<Map.Entry<String, ProductAggregate>> { it.value.totalCents }
+                        .thenByDescending { it.value.quantity }
+                        .thenBy { it.key },
                 )
-            },
-            staffProductSales = staffProductAggregates.entries
+                .map { entry ->
+                    DashboardSalesUi(
+                        name = entry.key,
+                        quantityLabel = "${entry.value.quantity} kom",
+                        totalLabel = formatCurrency(entry.value.totalCents),
+                    )
+                },
+            staffProductSales = productAggregates.entries
                 .sortedWith(
                     compareByDescending<Map.Entry<String, ProductAggregate>> { it.value.totalCents }
                         .thenByDescending { it.value.quantity }
@@ -592,18 +1151,18 @@ class MainViewModel(
                     )
                 },
             waiterRevenueComparison = buildComparisonBars(
-                waiters = sortedWaiters,
+                waiters = filteredWaiters,
                 metric = { aggregate -> aggregate.totalCents },
                 valueLabel = { aggregate -> formatCurrency(aggregate.totalCents) },
                 supportingLabel = { aggregate -> "${aggregate.receiptsCount} računa" },
             ),
             waiterItemsComparison = buildComparisonBars(
-                waiters = sortedWaiters,
+                waiters = filteredWaiters,
                 metric = { aggregate -> aggregate.itemsCount },
                 valueLabel = { aggregate -> "${aggregate.itemsCount} kom" },
                 supportingLabel = { aggregate -> formatCurrency(aggregate.totalCents) },
             ),
-            waiterAnalytics = sortedWaiters.map { aggregate ->
+            waiterAnalytics = filteredWaiters.map { aggregate ->
                 WaiterAnalyticsUi(
                     name = aggregate.name,
                     totalLabel = formatCurrency(aggregate.totalCents),
@@ -628,13 +1187,18 @@ class MainViewModel(
                         },
                 )
             },
+            notedReceipts = notedReceipts,
+            notedReceiptsTotalLabel = formatCurrency(notedReceipts.sumOf { receipt -> receipt.totalCents }),
             receiptHistory = history.map { item ->
                 ReceiptHistoryUi(
                     id = item.id,
                     receiptNumber = item.receiptNumber,
+                    createdAtMillis = item.createdAtMillis,
                     createdAtLabel = item.createdAtLabel,
+                    totalCents = item.totalCents,
                     totalLabel = item.totalLabel,
                     itemsCountLabel = item.itemsCountLabel,
+                    note = item.note,
                 )
             },
             cloudReceiptHistory = cloudHistory.map { item ->
@@ -642,11 +1206,28 @@ class MainViewModel(
                     id = item.id,
                     receiptNumber = item.receiptNumber,
                     waiterName = item.waiterName,
+                    createdAtMillis = item.createdAtMillis,
                     createdAtLabel = item.createdAtLabel,
+                    totalCents = item.totalCents,
                     totalLabel = item.totalLabel,
+                    note = item.note,
                     itemsSummary = item.itemsSummary,
                 )
             },
+            priceListVersions = priceListVersions.map { version ->
+                PriceListVersionUi(
+                    id = version.id,
+                    name = version.name,
+                    effectiveDateLabel = version.effectiveDateLabel,
+                    createdAtLabel = version.createdAtLabel,
+                    itemsCountLabel = version.itemsCountLabel,
+                    isActive = version.isActive,
+                )
+            },
+            inventoryItems = inventoryForCategory,
+            inventoryPriceListLabel = inventoryPriceListLabel,
+            inventoryTotalValueLabel = formatCurrency(inventoryTotalValueCents),
+            procurementHistory = procurementHistoryUi,
             cloudCafeName = state.cloudCafeName,
             cloudUserName = state.cloudUserName,
             cloudUserRole = state.cloudUserRole,
@@ -705,6 +1286,55 @@ class MainViewModel(
                 progress = value.toFloat() / maxValue.toFloat(),
             )
         }
+    }
+
+    private fun buildHourlyComparisonBars(
+        hourlyTotals: IntArray,
+        hourlyReceipts: IntArray,
+    ): List<ComparisonBarUi> {
+        val hoursWithSales = (0 until 24).filter { hour -> hourlyTotals[hour] > 0 }
+        if (hoursWithSales.isEmpty()) {
+            return emptyList()
+        }
+
+        val maxValue = hoursWithSales.maxOf { hour -> hourlyTotals[hour] }.coerceAtLeast(1)
+        return hoursWithSales.map { hour ->
+            ComparisonBarUi(
+                label = String.format("%02d:00", hour),
+                valueLabel = formatCurrency(hourlyTotals[hour]),
+                supportingLabel = "${hourlyReceipts[hour]} računa",
+                progress = hourlyTotals[hour].toFloat() / maxValue.toFloat(),
+            )
+        }
+    }
+
+    private fun normalizeDashboardRange(
+        start: LocalDate,
+        end: LocalDate,
+    ): DashboardDateRange = if (start <= end) {
+        DashboardDateRange(start = start, end = end)
+    } else {
+        DashboardDateRange(start = end, end = start)
+    }
+
+    private fun formatDashboardRangeLabel(
+        start: LocalDate,
+        end: LocalDate,
+    ): String = if (start == end) {
+        start.format(dashboardDateFormatter)
+    } else {
+        "${start.format(dashboardDateFormatter)} - ${end.format(dashboardDateFormatter)}"
+    }
+
+    private fun isWithinRange(
+        epochMillis: Long,
+        start: LocalDate,
+        end: LocalDate,
+    ): Boolean {
+        val date = Instant.ofEpochMilli(epochMillis)
+            .atZone(ZoneId.systemDefault())
+            .toLocalDate()
+        return !date.isBefore(start) && !date.isAfter(end)
     }
 
     companion object {

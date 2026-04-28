@@ -26,8 +26,70 @@ data class ProductEntity(
     val emoji: String,
     val accentColor: Long,
     val sortOrder: Int,
+    val isActive: Boolean = true,
     val cloudCafeId: String = "",
     val cloudProductId: String = "",
+)
+
+@Entity(
+    tableName = "inventory_stock",
+    indices = [Index("updatedAt")],
+)
+data class InventoryStockEntity(
+    @PrimaryKey val productId: Long,
+    val quantityUnits: Int,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "processed_cloud_receipts",
+    primaryKeys = ["cafeId", "receiptId"],
+    indices = [Index("appliedAt")],
+)
+data class ProcessedCloudReceiptEntity(
+    val cafeId: String,
+    val receiptId: String,
+    val appliedAt: Long,
+)
+
+@Entity(
+    tableName = "procurement_entries",
+    indices = [Index("productId"), Index("createdAt")],
+)
+data class ProcurementEntryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val productId: Long,
+    val productName: String,
+    val quantityUnits: Int,
+    val createdAt: Long,
+    val note: String = "",
+)
+
+@Entity(
+    tableName = "price_list_versions",
+    indices = [Index("effectiveDateLabel"), Index("isActive")],
+)
+data class PriceListVersionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val effectiveDateLabel: String,
+    val createdAt: Long,
+    val isActive: Boolean = false,
+)
+
+@Entity(
+    tableName = "price_list_items",
+    indices = [Index("versionId"), Index("categoryName"), Index("productName")],
+)
+data class PriceListItemEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val versionId: Long,
+    val categoryName: String,
+    val productName: String,
+    val priceCents: Int,
+    val emoji: String,
+    val accentColor: Long,
+    val sortOrder: Int,
 )
 
 @Entity(
@@ -40,6 +102,7 @@ data class ReceiptEntity(
     val createdAt: Long,
     val businessDayKey: String,
     val totalCents: Int,
+    val note: String = "",
 )
 
 @Entity(
@@ -110,4 +173,61 @@ data class ReceiptHistoryRow(
     val createdAt: Long,
     val totalCents: Int,
     val itemsCount: Int,
+    val note: String,
+)
+
+data class ReceiptExportRow(
+    val receiptId: Long,
+    val receiptNumber: String,
+    val createdAt: Long,
+    val note: String,
+    val productName: String,
+    val quantity: Int,
+    val lineTotalCents: Int,
+)
+
+data class ReceiptAnalyticsRow(
+    val createdAt: Long,
+    val categoryName: String,
+    val productName: String,
+    val quantity: Int,
+    val lineTotalCents: Int,
+)
+
+data class PriceListVersionRow(
+    val versionId: Long,
+    val name: String,
+    val effectiveDateLabel: String,
+    val createdAt: Long,
+    val isActive: Boolean,
+    val itemsCount: Int,
+)
+
+data class PriceListItemRow(
+    val categoryName: String,
+    val productName: String,
+    val priceCents: Int,
+    val emoji: String,
+    val accentColor: Long,
+    val sortOrder: Int,
+)
+
+data class InventoryRow(
+    val productId: Long,
+    val categoryId: Long,
+    val categoryName: String,
+    val productName: String,
+    val priceCents: Int,
+    val emoji: String,
+    val quantityUnits: Int,
+    val updatedAt: Long,
+)
+
+data class ProcurementHistoryRow(
+    val id: Long,
+    val productId: Long,
+    val productName: String,
+    val quantityUnits: Int,
+    val createdAt: Long,
+    val note: String,
 )

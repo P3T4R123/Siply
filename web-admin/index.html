@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Siply Web Admin</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="loginPanel" class="panel login-panel">
+      <div>
+        <p class="eyebrow">Siply</p>
+        <h1>Web admin</h1>
+        <p class="muted">Zalijepi web admin kod iz mobilne aplikacije i uredi artikle, cijene i stanje robe na kompjuteru.</p>
+      </div>
+      <textarea id="invitePayload" rows="7" placeholder="Zalijepi web admin kod ovdje"></textarea>
+      <div class="actions">
+        <button id="connectButton" class="primary">Spoji se</button>
+        <button id="clearSessionButton" class="secondary">Očisti spremljeno</button>
+      </div>
+      <p id="loginStatus" class="status"></p>
+    </section>
+
+    <section id="adminPanel" class="admin hidden">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Spojeno</p>
+          <h1 id="cafeName">Siply kafić</h1>
+        </div>
+        <div class="topbar-actions">
+          <button id="refreshButton" class="secondary">Osvježi</button>
+          <button id="logoutButton" class="secondary">Odjava</button>
+        </div>
+      </header>
+
+      <section class="stats-grid">
+        <article class="stat">
+          <span>Artikala</span>
+          <strong id="productsCount">0</strong>
+        </article>
+        <article class="stat">
+          <span>Aktivnih</span>
+          <strong id="activeCount">0</strong>
+        </article>
+        <article class="stat">
+          <span>Vrijednost robe</span>
+          <strong id="stockValue">0,00 EUR</strong>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Novi artikl</p>
+            <h2>Dodaj u cjenik</h2>
+          </div>
+        </div>
+        <form id="newProductForm" class="form-grid">
+          <label>Kategorija<input id="newCategory" required placeholder="Kava"></label>
+          <label>Artikl<input id="newName" required placeholder="Espresso"></label>
+          <label>Cijena EUR<input id="newPrice" required inputmode="decimal" placeholder="1,50"></label>
+          <label>Stanje kom<input id="newStock" inputmode="numeric" placeholder="0"></label>
+          <label>Emoji<input id="newEmoji" placeholder="☕"></label>
+          <button class="primary" type="submit">Dodaj artikl</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Katalog</p>
+            <h2>Artikli, cijene i skladište</h2>
+          </div>
+          <input id="searchInput" class="search" placeholder="Pretraži artikle ili kategorije">
+        </div>
+        <div id="productsTable" class="table"></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

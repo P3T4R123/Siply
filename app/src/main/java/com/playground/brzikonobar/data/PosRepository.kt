@@ -1354,7 +1354,7 @@ class PosRepository(
         changedAtMillis: Long,
     ) {
         val current = dao.getInventoryStockByProductId(productId)
-        val nextQuantity = (current?.quantityUnits ?: 0) + deltaUnits
+        val nextQuantity = maxOf(0, (current?.quantityUnits ?: 0) + deltaUnits)
         dao.insertInventoryStock(
             InventoryStockEntity(
                 productId = productId,

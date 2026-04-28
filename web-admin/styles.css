@@ -250,6 +250,15 @@ button:disabled {
   gap: 18px;
 }
 
+.warning-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-color: #f2c46d;
+  background: #fff8e8;
+}
+
 .filters label,
 label {
   display: grid;

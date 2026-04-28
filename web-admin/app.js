@@ -64,6 +64,8 @@ const els = {
   activeCount: document.querySelector("#activeCount"),
   stockValue: document.querySelector("#stockValue"),
   lowStockCount: document.querySelector("#lowStockCount"),
+  negativeStockPanel: document.querySelector("#negativeStockPanel"),
+  fixNegativeStockButton: document.querySelector("#fixNegativeStockButton"),
   newProductForm: document.querySelector("#newProductForm"),
   newCategory: document.querySelector("#newCategory"),
   newName: document.querySelector("#newName"),
@@ -354,7 +356,7 @@ function renderPos() {
       <strong>${escapeHtml(product.name || "")}</strong>
       <small>${escapeHtml(product.categoryName || "")}</small>
       <span>${formatEuro(product.priceCents || 0)}</span>
-      <em>Stanje: ${Number(product.stockQuantityUnits || 0)}</em>
+      <em>Stanje: ${safeStock(product)}</em>
     </button>
   `).join("");
 }
@@ -425,9 +427,11 @@ function renderCatalog() {
 
   els.productsCount.textContent = state.products.length.toString();
   els.activeCount.textContent = state.products.filter((product) => product.isActive !== false).length.toString();
-  els.lowStockCount.textContent = state.products.filter((product) => Number(product.stockQuantityUnits || 0) <= 5).length.toString();
+  const negativeProducts = state.products.filter((product) => rawStock(product) < 0);
+  els.negativeStockPanel.classList.toggle("hidden", negativeProducts.length === 0);
+  els.lowStockCount.textContent = state.products.filter((product) => safeStock(product) <= 5).length.toString();
   els.stockValue.textContent = formatEuro(
-    state.products.reduce((total, product) => total + Number(product.priceCents || 0) * Number(product.stockQuantityUnits || 0), 0),
+    state.products.reduce((total, product) => total + Number(product.priceCents || 0) * safeStock(product), 0),
   );
 
   if (visibleProducts.length === 0) {
@@ -468,7 +472,7 @@ function renderProcurement() {
 
   const header = `<div class="table-header procurement-header"><span>Artikl</span><span>Trenutno</span><span>Ulaz robe</span><span>Novo stanje</span></div>`;
   els.procurementTable.innerHTML = header + state.products.map((product) => {
-    const stock = Number(product.stockQuantityUnits || 0);
+    const stock = safeStock(product);
     return `
       <div class="procurement-row" data-id="${product.id}" data-stock="${stock}">
         <strong>${escapeHtml(product.name || "")}<small>${escapeHtml(product.categoryName || "")}</small></strong>
@@ -632,7 +636,7 @@ async function saveProcurement() {
   const batch = state.db.batch();
   updates.forEach(({ product, quantity }) => {
     batch.set(productRef(product.id), {
-      stockQuantityUnits: Number(product.stockQuantityUnits || 0) + quantity,
+      stockQuantityUnits: safeStock(product) + quantity,
       stockUpdatedAt: now,
       updatedAt: now,
     }, { merge: true });
@@ -640,6 +644,26 @@ async function saveProcurement() {
   await batch.commit();
   els.procurementNote.value = "";
   renderProcurement();
+}
+
+async function fixNegativeStocks() {
+  const negativeProducts = state.products.filter((product) => rawStock(product) < 0);
+  if (negativeProducts.length === 0) {
+    alert("Nema negativnih stanja.");
+    return;
+  }
+  if (!confirm(`Ispraviti ${negativeProducts.length} artikala s negativnim stanjem na 0?`)) return;
+
+  const now = Date.now();
+  const batch = state.db.batch();
+  negativeProducts.forEach((product) => {
+    batch.set(productRef(product.id), {
+      stockQuantityUnits: 0,
+      stockUpdatedAt: now,
+      updatedAt: now,
+    }, { merge: true });
+  });
+  await batch.commit();
 }
 
 async function resetAllReceipts() {
@@ -892,6 +916,14 @@ function parseStock(value) {
   return parsed;
 }
 
+function rawStock(product) {
+  return Number(product.stockQuantityUnits || 0);
+}
+
+function safeStock(product) {
+  return Math.max(0, rawStock(product));
+}
+
 function cartTotalCents() {
   return Array.from(state.cart.values())
     .reduce((total, line) => total + Number(line.product.priceCents || 0) * line.quantity, 0);
@@ -1042,6 +1074,10 @@ els.procurementTable.addEventListener("input", (event) => {
 els.saveProcurementButton.addEventListener("click", () => saveProcurement().catch((error) => {
   console.error(error);
   alert(error.message || "Unos robe nije uspio.");
+}));
+els.fixNegativeStockButton.addEventListener("click", () => fixNegativeStocks().catch((error) => {
+  console.error(error);
+  alert(error.message || "Ispravak negativnog stanja nije uspio.");
 }));
 els.exportReceiptsButton.addEventListener("click", exportReceiptCsv);
 els.exportSalesButton.addEventListener("click", exportSalesCsv);

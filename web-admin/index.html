@@ -12,7 +12,7 @@
       <div>
         <p class="eyebrow">Siply</p>
         <h1>Web admin</h1>
-        <p class="muted">Zalijepi web admin kod iz mobilne aplikacije i uredi artikle, cijene i stanje robe na kompjuteru.</p>
+        <p class="muted">Zalijepi web admin kod iz mobilne aplikacije i upravljaj kafićem s kompjutera.</p>
       </div>
       <textarea id="invitePayload" rows="7" placeholder="Zalijepi web admin kod ovdje"></textarea>
       <div class="actions">
@@ -34,47 +34,204 @@
         </div>
       </header>
 
-      <section class="stats-grid">
-        <article class="stat">
-          <span>Artikala</span>
-          <strong id="productsCount">0</strong>
-        </article>
-        <article class="stat">
-          <span>Aktivnih</span>
-          <strong id="activeCount">0</strong>
-        </article>
-        <article class="stat">
-          <span>Vrijednost robe</span>
-          <strong id="stockValue">0,00 EUR</strong>
-        </article>
+      <nav class="tabs" aria-label="Web admin navigacija">
+        <button class="tab active" data-tab="dashboard">Dashboard</button>
+        <button class="tab" data-tab="pos">POS</button>
+        <button class="tab" data-tab="receipts">Računi</button>
+        <button class="tab" data-tab="catalog">Artikli</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </nav>
+
+      <section id="dashboardTab" class="tab-panel">
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Analitika</p>
+              <h2>Dashboard prodaje</h2>
+            </div>
+            <div class="filters">
+              <label>Od<input id="dashboardFrom" type="date"></label>
+              <label>Do<input id="dashboardTo" type="date"></label>
+              <label>Konobar<select id="dashboardWaiter"></select></label>
+              <button id="todayDashboardButton" class="secondary">Danas</button>
+            </div>
+          </div>
+          <section class="stats-grid">
+            <article class="stat"><span>Promet</span><strong id="dashRevenue">0,00 EUR</strong></article>
+            <article class="stat"><span>Računa</span><strong id="dashReceipts">0</strong></article>
+            <article class="stat"><span>Prosjek računa</span><strong id="dashAverage">0,00 EUR</strong></article>
+            <article class="stat"><span>Na račun kuće</span><strong id="dashHouse">0,00 EUR</strong></article>
+          </section>
+        </section>
+        <section class="two-column">
+          <article class="panel">
+            <div class="section-header compact"><h2>Po konobarima</h2></div>
+            <div id="waiterChart" class="bar-list"></div>
+          </article>
+          <article class="panel">
+            <div class="section-header compact"><h2>Po kategorijama</h2></div>
+            <div id="categoryChart" class="bar-list"></div>
+          </article>
+        </section>
+        <section class="two-column">
+          <article class="panel">
+            <div class="section-header compact"><h2>Top artikli</h2></div>
+            <div id="productChart" class="bar-list"></div>
+          </article>
+          <article class="panel">
+            <div class="section-header compact"><h2>Promet po satu</h2></div>
+            <div id="hourChart" class="bar-list"></div>
+          </article>
+        </section>
       </section>
 
-      <section class="panel">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Novi artikl</p>
-            <h2>Dodaj u cjenik</h2>
-          </div>
-        </div>
-        <form id="newProductForm" class="form-grid">
-          <label>Kategorija<input id="newCategory" required placeholder="Kava"></label>
-          <label>Artikl<input id="newName" required placeholder="Espresso"></label>
-          <label>Cijena EUR<input id="newPrice" required inputmode="decimal" placeholder="1,50"></label>
-          <label>Stanje kom<input id="newStock" inputmode="numeric" placeholder="0"></label>
-          <label>Emoji<input id="newEmoji" placeholder="☕"></label>
-          <button class="primary" type="submit">Dodaj artikl</button>
-        </form>
+      <section id="posTab" class="tab-panel hidden">
+        <section class="pos-layout">
+          <article class="panel">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">Prodaja</p>
+                <h2>Dodavanje artikala</h2>
+              </div>
+              <input id="posSearchInput" class="search" placeholder="Pretraži artikle">
+            </div>
+            <div id="categoryChips" class="chips"></div>
+            <div id="productCards" class="product-cards"></div>
+          </article>
+          <aside class="panel receipt-panel">
+            <div class="section-header compact">
+              <div>
+                <p class="eyebrow">Račun</p>
+                <h2>Trenutni račun</h2>
+              </div>
+              <button id="clearCartButton" class="secondary">Očisti</button>
+            </div>
+            <div id="cartLines" class="cart-lines"></div>
+            <label class="checkbox-row"><input id="houseNote" type="checkbox"> Na račun kuće</label>
+            <label class="checkbox-row"><input id="musicNote" type="checkbox"> Muzika</label>
+            <div class="receipt-total">
+              <span>Ukupno</span>
+              <strong id="cartTotal">0,00 EUR</strong>
+            </div>
+            <button id="saveReceiptButton" class="primary big">Spremi račun</button>
+          </aside>
+        </section>
       </section>
 
-      <section class="panel">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Katalog</p>
-            <h2>Artikli, cijene i skladište</h2>
+      <section id="receiptsTab" class="tab-panel hidden">
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Povijest</p>
+              <h2>Računi i export</h2>
+            </div>
+            <div class="filters">
+              <label>Od<input id="receiptFrom" type="date"></label>
+              <label>Do<input id="receiptTo" type="date"></label>
+              <label>Konobar<select id="receiptWaiter"></select></label>
+              <label>Tip<select id="receiptNoteFilter">
+                <option value="all">Svi</option>
+                <option value="notes">S bilješkom</option>
+                <option value="house">Na račun kuće</option>
+                <option value="music">Muzika</option>
+              </select></label>
+            </div>
           </div>
-          <input id="searchInput" class="search" placeholder="Pretraži artikle ili kategorije">
-        </div>
-        <div id="productsTable" class="table"></div>
+          <div class="actions">
+            <button id="exportReceiptsButton" class="secondary">Export računa CSV</button>
+            <button id="exportSalesButton" class="secondary">Export prodaje CSV</button>
+            <button id="resetReceiptsButton" class="danger">Reset svih računa</button>
+          </div>
+          <div id="receiptsList" class="receipt-list"></div>
+        </section>
+      </section>
+
+      <section id="catalogTab" class="tab-panel hidden">
+        <section class="stats-grid">
+          <article class="stat"><span>Artikala</span><strong id="productsCount">0</strong></article>
+          <article class="stat"><span>Aktivnih</span><strong id="activeCount">0</strong></article>
+          <article class="stat"><span>Vrijednost robe</span><strong id="stockValue">0,00 EUR</strong></article>
+          <article class="stat"><span>Nisko stanje</span><strong id="lowStockCount">0</strong></article>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Novi artikl</p>
+              <h2>Dodaj u cjenik</h2>
+            </div>
+          </div>
+          <form id="newProductForm" class="form-grid">
+            <label>Kategorija<input id="newCategory" required placeholder="Kava"></label>
+            <label>Artikl<input id="newName" required placeholder="Espresso"></label>
+            <label>Cijena EUR<input id="newPrice" required inputmode="decimal" placeholder="1,50"></label>
+            <label>Stanje kom<input id="newStock" inputmode="numeric" placeholder="0"></label>
+            <label>Emoji<input id="newEmoji" placeholder="☕"></label>
+            <button class="primary" type="submit">Dodaj artikl</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Skladište</p>
+              <h2>Unos u skladište</h2>
+            </div>
+            <button id="toggleProcurementButton" class="secondary">Unos u skladište</button>
+          </div>
+          <div id="procurementPanel" class="hidden">
+            <div class="table-actions">
+              <input id="procurementNote" placeholder="Napomena ulaza robe (opcionalno)">
+              <button id="saveProcurementButton" class="primary">Spremi ulaz robe</button>
+            </div>
+            <div id="procurementTable" class="table"></div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Katalog</p>
+              <h2>Artikli, cijene i stanje</h2>
+            </div>
+            <input id="searchInput" class="search" placeholder="Pretraži artikle ili kategorije">
+          </div>
+          <div id="productsTable" class="table"></div>
+        </section>
+      </section>
+
+      <section id="settingsTab" class="tab-panel hidden">
+        <section class="two-column">
+          <article class="panel">
+            <div class="section-header compact">
+              <div>
+                <p class="eyebrow">Cjenik</p>
+                <h2>Import / export</h2>
+              </div>
+            </div>
+            <div class="actions stacked">
+              <button id="exportCatalogButton" class="secondary">Export cjenika CSV</button>
+              <label class="file-button secondary">
+                Import cjenika CSV
+                <input id="importCatalogInput" type="file" accept=".csv,text/csv">
+              </label>
+            </div>
+            <p class="muted small">CSV format: kategorija, artikl, cijena, stanje, emoji, aktivan.</p>
+          </article>
+          <article class="panel">
+            <div class="section-header compact">
+              <div>
+                <p class="eyebrow">Sesija</p>
+                <h2>Web admin</h2>
+              </div>
+            </div>
+            <p id="settingsInfo" class="muted"></p>
+            <div class="actions">
+              <button id="downloadBackupButton" class="secondary">Backup JSON</button>
+              <button id="forgetWebCodeButton" class="danger">Zaboravi web kod</button>
+            </div>
+          </article>
+        </section>
       </section>
     </section>
   </main>

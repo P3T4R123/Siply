@@ -80,6 +80,7 @@ const els = {
 
   exportCatalogButton: document.querySelector("#exportCatalogButton"),
   importCatalogInput: document.querySelector("#importCatalogInput"),
+  deleteInactiveProductsButton: document.querySelector("#deleteInactiveProductsButton"),
   settingsInfo: document.querySelector("#settingsInfo"),
   downloadBackupButton: document.querySelector("#downloadBackupButton"),
   forgetWebCodeButton: document.querySelector("#forgetWebCodeButton"),
@@ -806,15 +807,29 @@ async function importCatalogCsv(file) {
   state.products
     .filter((product) => !importedKeys.has(productImportKey(product.categoryName || "", product.name || "")))
     .forEach((product) => {
-      batch.set(productRef(product.id), {
-        isActive: false,
-        updatedAt: Date.now(),
-      }, { merge: true });
+      batch.delete(productRef(product.id));
     });
 
   await batch.commit();
   els.importCatalogInput.value = "";
-  alert("Cjenik je importan. Artikli kojih nema u CSV-u su deaktivirani.");
+  alert("Cjenik je importan. Artikli kojih nema u CSV-u su obrisani.");
+}
+
+async function deleteInactiveProducts() {
+  const inactiveProducts = state.products.filter((product) => product.isActive === false);
+  if (inactiveProducts.length === 0) {
+    alert("Nema neaktivnih/starih artikala za brisanje.");
+    return;
+  }
+  if (!confirm(`Obrisati ${inactiveProducts.length} neaktivnih/starih artikala?`)) return;
+
+  for (let index = 0; index < inactiveProducts.length; index += 450) {
+    const batch = state.db.batch();
+    inactiveProducts.slice(index, index + 450).forEach((product) => {
+      batch.delete(productRef(product.id));
+    });
+    await batch.commit();
+  }
 }
 
 function downloadBackup() {
@@ -1084,6 +1099,10 @@ els.resetReceiptsButton.addEventListener("click", () => resetAllReceipts().catch
   alert(error.message || "Reset računa nije uspio. Provjeri Firestore rules.");
 }));
 els.exportCatalogButton.addEventListener("click", exportCatalogCsv);
+els.deleteInactiveProductsButton.addEventListener("click", () => deleteInactiveProducts().catch((error) => {
+  console.error(error);
+  alert(error.message || "Brisanje starih artikala nije uspjelo.");
+}));
 els.importCatalogInput.addEventListener("change", (event) => {
   const file = event.target.files?.[0];
   if (!file) return;

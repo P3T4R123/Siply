@@ -115,6 +115,20 @@ interface PosDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProduct(product: ProductEntity)
 
+    @Query(
+        """
+        UPDATE products
+        SET isActive = 0
+        WHERE cloudCafeId = :cloudCafeId
+            AND cloudProductId != ''
+            AND cloudProductId NOT IN (:cloudProductIds)
+        """
+    )
+    suspend fun deactivateCloudProductsNotIn(
+        cloudCafeId: String,
+        cloudProductIds: List<String>,
+    )
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertInventoryStock(stock: InventoryStockEntity)
 

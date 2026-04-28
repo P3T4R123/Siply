@@ -327,6 +327,8 @@ class PosRepository(
 
         database.withTransaction {
             ensureSeededAndState(now = Instant.now(clock))
+            val cafeId = products.first().cafeId
+            val cloudProductIds = products.map { product -> product.id }
 
             val categoriesByKey = dao.getAllCategories()
                 .associateByTo(linkedMapOf()) { category -> normalizeName(category.name) }
@@ -385,6 +387,7 @@ class PosRepository(
                     )
                 }
             }
+            dao.deactivateCloudProductsNotIn(cafeId, cloudProductIds)
         }
     }
 

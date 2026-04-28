@@ -1117,6 +1117,7 @@ class PosRepository(
             dao.deleteAllReceiptItems()
             dao.deleteAllReceipts()
             dao.deleteAllProcessedCloudReceipts()
+            dao.deleteAllInventoryStocks()
             dao.upsertAppState(
                 currentState.copy(
                     statsAnchorEpochMs = startOfDayMillis(now, zoneId),
@@ -1354,7 +1355,7 @@ class PosRepository(
         changedAtMillis: Long,
     ) {
         val current = dao.getInventoryStockByProductId(productId)
-        val nextQuantity = maxOf(0, (current?.quantityUnits ?: 0) + deltaUnits)
+        val nextQuantity = (current?.quantityUnits ?: 0) + deltaUnits
         dao.insertInventoryStock(
             InventoryStockEntity(
                 productId = productId,

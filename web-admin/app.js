@@ -64,8 +64,6 @@ const els = {
   activeCount: document.querySelector("#activeCount"),
   stockValue: document.querySelector("#stockValue"),
   lowStockCount: document.querySelector("#lowStockCount"),
-  negativeStockPanel: document.querySelector("#negativeStockPanel"),
-  fixNegativeStockButton: document.querySelector("#fixNegativeStockButton"),
   newProductForm: document.querySelector("#newProductForm"),
   newCategory: document.querySelector("#newCategory"),
   newName: document.querySelector("#newName"),
@@ -356,7 +354,7 @@ function renderPos() {
       <strong>${escapeHtml(product.name || "")}</strong>
       <small>${escapeHtml(product.categoryName || "")}</small>
       <span>${formatEuro(product.priceCents || 0)}</span>
-      <em>Stanje: ${safeStock(product)}</em>
+      <em>Stanje: ${rawStock(product)}</em>
     </button>
   `).join("");
 }
@@ -427,11 +425,9 @@ function renderCatalog() {
 
   els.productsCount.textContent = state.products.length.toString();
   els.activeCount.textContent = state.products.filter((product) => product.isActive !== false).length.toString();
-  const negativeProducts = state.products.filter((product) => rawStock(product) < 0);
-  els.negativeStockPanel.classList.toggle("hidden", negativeProducts.length === 0);
-  els.lowStockCount.textContent = state.products.filter((product) => safeStock(product) <= 5).length.toString();
+  els.lowStockCount.textContent = state.products.filter((product) => rawStock(product) <= 5).length.toString();
   els.stockValue.textContent = formatEuro(
-    state.products.reduce((total, product) => total + Number(product.priceCents || 0) * safeStock(product), 0),
+    state.products.reduce((total, product) => total + Number(product.priceCents || 0) * rawStock(product), 0),
   );
 
   if (visibleProducts.length === 0) {
@@ -472,7 +468,7 @@ function renderProcurement() {
 
   const header = `<div class="table-header procurement-header"><span>Artikl</span><span>Trenutno</span><span>Ulaz robe</span><span>Novo stanje</span></div>`;
   els.procurementTable.innerHTML = header + state.products.map((product) => {
-    const stock = safeStock(product);
+    const stock = rawStock(product);
     return `
       <div class="procurement-row" data-id="${product.id}" data-stock="${stock}">
         <strong>${escapeHtml(product.name || "")}<small>${escapeHtml(product.categoryName || "")}</small></strong>
@@ -601,7 +597,7 @@ async function saveReceipt() {
   lines.forEach((line) => {
     const currentStock = Number(line.product.stockQuantityUnits || 0);
     batch.set(productRef(line.product.id), {
-      stockQuantityUnits: Math.max(0, currentStock - line.quantity),
+      stockQuantityUnits: currentStock - line.quantity,
       stockUpdatedAt: now,
       updatedAt: now,
     }, { merge: true });
@@ -636,7 +632,7 @@ async function saveProcurement() {
   const batch = state.db.batch();
   updates.forEach(({ product, quantity }) => {
     batch.set(productRef(product.id), {
-      stockQuantityUnits: safeStock(product) + quantity,
+      stockQuantityUnits: rawStock(product) + quantity,
       stockUpdatedAt: now,
       updatedAt: now,
     }, { merge: true });
@@ -646,29 +642,9 @@ async function saveProcurement() {
   renderProcurement();
 }
 
-async function fixNegativeStocks() {
-  const negativeProducts = state.products.filter((product) => rawStock(product) < 0);
-  if (negativeProducts.length === 0) {
-    alert("Nema negativnih stanja.");
-    return;
-  }
-  if (!confirm(`Ispraviti ${negativeProducts.length} artikala s negativnim stanjem na 0?`)) return;
-
-  const now = Date.now();
-  const batch = state.db.batch();
-  negativeProducts.forEach((product) => {
-    batch.set(productRef(product.id), {
-      stockQuantityUnits: 0,
-      stockUpdatedAt: now,
-      updatedAt: now,
-    }, { merge: true });
-  });
-  await batch.commit();
-}
-
 async function resetAllReceipts() {
-  if (!confirm("Ovo briše sve cloud račune za ovaj kafić. Nastaviti?")) return;
-  if (!confirm("Još jednom potvrdi: želiš resetirati sve račune?")) return;
+  if (!confirm("Ovo briše sve cloud račune i vraća stanje robe na 0. Nastaviti?")) return;
+  if (!confirm("Još jednom potvrdi: želiš resetirati sve račune i skladište?")) return;
 
   els.resetReceiptsButton.disabled = true;
   try {
@@ -677,6 +653,20 @@ async function resetAllReceipts() {
       if (snapshot.empty) break;
       const batch = state.db.batch();
       snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+    }
+
+    const now = Date.now();
+    const productsSnapshot = await productsCollection().get();
+    for (let index = 0; index < productsSnapshot.docs.length; index += 450) {
+      const batch = state.db.batch();
+      productsSnapshot.docs.slice(index, index + 450).forEach((doc) => {
+        batch.set(doc.ref, {
+          stockQuantityUnits: 0,
+          stockUpdatedAt: now,
+          updatedAt: now,
+        }, { merge: true });
+      });
       await batch.commit();
     }
   } finally {
@@ -912,16 +902,12 @@ function parseEuroCents(value) {
 
 function parseStock(value) {
   const parsed = Number.parseInt(String(value || "0").trim(), 10);
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error("Stanje nije valjano.");
+  if (!Number.isFinite(parsed)) throw new Error("Stanje nije valjano.");
   return parsed;
 }
 
 function rawStock(product) {
   return Number(product.stockQuantityUnits || 0);
-}
-
-function safeStock(product) {
-  return Math.max(0, rawStock(product));
 }
 
 function cartTotalCents() {
@@ -1074,10 +1060,6 @@ els.procurementTable.addEventListener("input", (event) => {
 els.saveProcurementButton.addEventListener("click", () => saveProcurement().catch((error) => {
   console.error(error);
   alert(error.message || "Unos robe nije uspio.");
-}));
-els.fixNegativeStockButton.addEventListener("click", () => fixNegativeStocks().catch((error) => {
-  console.error(error);
-  alert(error.message || "Ispravak negativnog stanja nije uspio.");
 }));
 els.exportReceiptsButton.addEventListener("click", exportReceiptCsv);
 els.exportSalesButton.addEventListener("click", exportSalesCsv);

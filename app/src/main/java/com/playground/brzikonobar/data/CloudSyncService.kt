@@ -414,6 +414,10 @@ class CloudSyncService(
             .collection("cafes")
             .document(session.cafeId)
             .collection("receipts")
+        val productsCollection = firestore
+            .collection("cafes")
+            .document(session.cafeId)
+            .collection("catalogProducts")
 
         while (true) {
             val snapshot = collection.limit(400).get().await()
@@ -424,6 +428,22 @@ class CloudSyncService(
             firestore.runBatch { batch ->
                 snapshot.documents.forEach { document ->
                     batch.delete(document.reference)
+                }
+            }.await()
+        }
+
+        productsCollection.get().await().documents.chunked(400).forEach { documents ->
+            firestore.runBatch { batch ->
+                documents.forEach { document ->
+                    batch.set(
+                        document.reference,
+                        mapOf(
+                            "stockQuantityUnits" to 0,
+                            "stockUpdatedAt" to System.currentTimeMillis(),
+                            "updatedAt" to System.currentTimeMillis(),
+                        ),
+                        SetOptions.merge(),
+                    )
                 }
             }.await()
         }

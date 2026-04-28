@@ -388,6 +388,15 @@ class PosRepository(
         }
     }
 
+    suspend fun refreshCloudCatalogNow(): Int {
+        val state = dao.getAppState() ?: return 0
+        val config = state.toCloudConfigOrNull() ?: return 0
+        val session = state.toCloudSessionOrNull() ?: return 0
+        val products = cloudSyncService.fetchCatalogProducts(config, session)
+        syncCloudCatalog(products)
+        return products.count { product -> product.isActive }
+    }
+
     suspend fun prepare() {
         database.withTransaction {
             ensureSeededAndState(now = Instant.now(clock))

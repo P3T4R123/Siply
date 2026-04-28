@@ -776,10 +776,12 @@ async function importCatalogCsv(file) {
   const rows = parseCsv(text).filter((row) => row.some((cell) => cell.trim()));
   const body = rows[0]?.[0]?.toLowerCase().includes("kategorija") ? rows.slice(1) : rows;
   const batch = state.db.batch();
+  const importedKeys = new Set();
 
   body.forEach((row) => {
     const [categoryName, name, price, stock, emoji, active] = row;
     if (!categoryName || !name) return;
+    importedKeys.add(productImportKey(categoryName, name));
     const existing = state.products.find((product) =>
       String(product.categoryName || "").trim().toLowerCase() === categoryName.trim().toLowerCase()
       && String(product.name || "").trim().toLowerCase() === name.trim().toLowerCase()
@@ -801,8 +803,18 @@ async function importCatalogCsv(file) {
     }, { merge: true });
   });
 
+  state.products
+    .filter((product) => !importedKeys.has(productImportKey(product.categoryName || "", product.name || "")))
+    .forEach((product) => {
+      batch.set(productRef(product.id), {
+        isActive: false,
+        updatedAt: Date.now(),
+      }, { merge: true });
+    });
+
   await batch.commit();
   els.importCatalogInput.value = "";
+  alert("Cjenik je importan. Artikli kojih nema u CSV-u su deaktivirani.");
 }
 
 function downloadBackup() {
@@ -873,6 +885,10 @@ function parseCsv(text) {
 
 function readField(row, field) {
   return row.querySelector(`[data-field="${field}"]`).value;
+}
+
+function productImportKey(categoryName, productName) {
+  return `${String(categoryName).trim().toLowerCase()}|${String(productName).trim().toLowerCase()}`;
 }
 
 function categoryIdFor(categoryName, fallback) {

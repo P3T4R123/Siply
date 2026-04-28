@@ -151,6 +151,7 @@ fun PosApp(
     onCreateOnlineCafe: suspend (String, String) -> Boolean,
     onRefreshWaiterInvite: suspend () -> Boolean,
     onRefreshWebAdminInvite: suspend () -> String?,
+    onRefreshCloudCatalog: () -> Unit,
     onJoinCafeAsWaiter: suspend (String, String) -> Boolean,
     onRestoreBackup: suspend (String) -> Boolean,
     onExportResult: (Boolean, String) -> Unit,
@@ -323,6 +324,7 @@ fun PosApp(
                 onCreateOnlineCafe = onCreateOnlineCafe,
                 onRefreshWaiterInvite = onRefreshWaiterInvite,
                 onRefreshWebAdminInvite = onRefreshWebAdminInvite,
+                onRefreshCloudCatalog = onRefreshCloudCatalog,
                 onJoinCafeAsWaiter = onJoinCafeAsWaiter,
                 onRestoreBackup = onRestoreBackup,
                 buildPriceListExportPayload = buildPriceListExportPayload,
@@ -669,6 +671,7 @@ private fun SettingsTab(
     onCreateOnlineCafe: suspend (String, String) -> Boolean,
     onRefreshWaiterInvite: suspend () -> Boolean,
     onRefreshWebAdminInvite: suspend () -> String?,
+    onRefreshCloudCatalog: () -> Unit,
     onJoinCafeAsWaiter: suspend (String, String) -> Boolean,
     onRestoreBackup: suspend (String) -> Boolean,
     buildPriceListExportPayload: suspend () -> ExportPayload?,
@@ -855,6 +858,20 @@ private fun SettingsTab(
                                 label = { Text(section.label) },
                             )
                         }
+                    }
+                    if (uiState.cloudUserRole.isNotBlank()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        FilledTonalButton(
+                            onClick = onRefreshCloudCatalog,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Osvježi cjenik iz clouda")
+                        }
+                        Text(
+                            text = "Koristi ovo nakon izmjene ili importa cjenika na web adminu ako se mobitel ne osvježi odmah.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

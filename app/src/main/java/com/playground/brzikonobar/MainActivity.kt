@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
                         onCreateOnlineCafe = viewModel::createOnlineCafe,
                         onRefreshWaiterInvite = viewModel::refreshWaiterInvite,
                         onRefreshWebAdminInvite = viewModel::refreshWebAdminInvitePayload,
+                        onRefreshCloudCatalog = viewModel::refreshCloudCatalog,
                         onJoinCafeAsWaiter = viewModel::joinCafeAsWaiter,
                         onRestoreBackup = viewModel::restoreBackup,
                         onExportResult = viewModel::notifyExportSaved,
@@ -74,5 +75,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshCloudCatalogSilently()
     }
 }

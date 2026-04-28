@@ -402,6 +402,7 @@ class MainViewModel(
     init {
         viewModelScope.launch {
             repository.prepare()
+            refreshCloudCatalogSilently()
         }
         viewModelScope.launch {
             repository.observeCloudCatalog()
@@ -423,6 +424,30 @@ class MainViewModel(
                 if (categoryIds.isNotEmpty() && (current == null || current !in categoryIds)) {
                     selectedCategoryId.value = categoryIds.first()
                 }
+            }
+        }
+    }
+
+    fun refreshCloudCatalog() {
+        viewModelScope.launch {
+            val count = runCatching {
+                repository.refreshCloudCatalogNow()
+            }.getOrElse {
+                _messages.emit("Ne mogu osvježiti cloud cjenik.")
+                return@launch
+            }
+            if (count > 0) {
+                _messages.emit("Cjenik je osvježen iz clouda ($count artikala).")
+            } else {
+                _messages.emit("Nema cloud cjenika za osvježiti.")
+            }
+        }
+    }
+
+    fun refreshCloudCatalogSilently() {
+        viewModelScope.launch {
+            runCatching {
+                repository.refreshCloudCatalogNow()
             }
         }
     }

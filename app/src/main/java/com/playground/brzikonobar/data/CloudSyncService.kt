@@ -363,6 +363,25 @@ class CloudSyncService(
         }
     }
 
+    suspend fun fetchCatalogProducts(
+        config: CloudConfig,
+        session: CloudSession,
+    ): List<CloudCatalogProduct> {
+        if (session.cafeId.isBlank()) {
+            return emptyList()
+        }
+
+        return firestore(config)
+            .collection("cafes")
+            .document(session.cafeId)
+            .collection("catalogProducts")
+            .get()
+            .await()
+            .documents
+            .mapNotNull { doc -> doc.toCloudCatalogProduct(session.cafeId) }
+            .sortedWith(compareBy<CloudCatalogProduct>({ it.categoryId }, { it.sortOrder }, { it.name }))
+    }
+
     fun observeReceipts(
         config: CloudConfig,
         session: CloudSession,

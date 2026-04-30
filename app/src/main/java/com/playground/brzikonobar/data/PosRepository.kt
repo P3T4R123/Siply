@@ -481,8 +481,6 @@ class PosRepository(
         }
         val cleanNote = note.trim()
 
-        var pendingConfig: CloudConfig? = null
-        var pendingSession: CloudSession? = null
         var saveResult: SaveReceiptResult? = null
 
         database.withTransaction {
@@ -532,48 +530,20 @@ class PosRepository(
                 changedAtMillis = nowMillis,
             )
 
-            pendingConfig = state.toCloudConfigOrNull()
-            pendingSession = state.toCloudSessionOrNull()
             saveResult = SaveReceiptResult(
                 receiptNumber = receiptNumber,
                 cloudSynced = false,
             )
         }
 
-        val result = saveResult ?: return null
-        val cloudSynced = runCatching {
-            if (pendingConfig != null && pendingSession != null) {
-                cloudSyncService.pushReceipt(
-                    config = pendingConfig!!,
-                    session = pendingSession!!,
-                    receiptNumber = result.receiptNumber,
-                    totalCents = lines.sumOf { it.lineTotalCents },
-                    note = cleanNote,
-                    lines = lines.map { line ->
-                        CloudReceiptLine(
-                            productId = line.productId,
-                            name = line.productName,
-                            quantity = line.quantity,
-                            lineTotalCents = line.lineTotalCents,
-                        )
-                    },
-                )
-                true
-            } else {
-                false
-            }
-        }.getOrDefault(false)
-
-        if (cloudSynced && pendingConfig != null && pendingSession?.userRole == "admin") {
-            runCatching {
-                syncCatalogToCloud(pendingConfig!!, pendingSession!!)
-            }
-        }
-
-        return result.copy(cloudSynced = cloudSynced)
+        return saveResult
     }
 
-    suspend fun sendBarOrder(lines: List<ReceiptDraftLine>): Boolean {
+    suspend fun syncSavedReceiptOnline(
+        receiptNumber: String,
+        lines: List<ReceiptDraftLine>,
+        note: String = "",
+    ): Boolean {
         if (lines.isEmpty()) {
             return false
         }
@@ -581,21 +551,36 @@ class PosRepository(
         val state = dao.getAppState() ?: return false
         val config = state.toCloudConfigOrNull() ?: return false
         val session = state.toCloudSessionOrNull() ?: return false
-        val orderNumber = "NAR-${Instant.now(clock).toEpochMilli()}"
+        val cloudLines = lines.map { line ->
+            CloudReceiptLine(
+                productId = line.productId,
+                name = line.productName,
+                quantity = line.quantity,
+                lineTotalCents = line.lineTotalCents,
+            )
+        }
+
+        cloudSyncService.pushReceipt(
+            config = config,
+            session = session,
+            receiptNumber = receiptNumber,
+            totalCents = lines.sumOf { it.lineTotalCents },
+            note = note.trim(),
+            lines = cloudLines,
+        )
 
         cloudSyncService.pushBarOrder(
             config = config,
             session = session,
-            orderNumber = orderNumber,
-            lines = lines.map { line ->
-                CloudReceiptLine(
-                    productId = line.productId,
-                    name = line.productName,
-                    quantity = line.quantity,
-                    lineTotalCents = line.lineTotalCents,
-                )
-            },
+            orderNumber = receiptNumber,
+            lines = cloudLines,
         )
+
+        if (session.userRole == "admin") {
+            runCatching {
+                syncCatalogToCloud(config, session)
+            }
+        }
         return true
     }
 

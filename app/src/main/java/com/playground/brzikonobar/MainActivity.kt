@@ -49,7 +49,6 @@ class MainActivity : ComponentActivity() {
                         onAddProduct = viewModel::addProduct,
                         onAdjustQuantity = viewModel::adjustQuantity,
                         onSaveReceipt = viewModel::saveReceipt,
-                        onSendBarOrder = viewModel::sendCurrentOrderToBar,
                         onDeleteLastReceipt = viewModel::deleteLastReceipt,
                         onClearAllSalesData = viewModel::clearAllSalesData,
                         onResetDailyStats = viewModel::resetDailyStats,

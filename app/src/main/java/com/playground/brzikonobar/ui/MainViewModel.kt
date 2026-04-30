@@ -499,32 +499,19 @@ class MainViewModel(
             val result = repository.saveReceipt(draft, note)
             if (result != null) {
                 cartQuantities.value = linkedMapOf()
-                val cloudNote = if (result.cloudSynced) " i syncan u cloud." else "."
-                _messages.emit("Račun ${result.receiptNumber} je spremljen$cloudNote")
-            }
-        }
-    }
-
-    fun sendCurrentOrderToBar() {
-        viewModelScope.launch {
-            val draft = buildDraftLines()
-            if (draft.isEmpty()) {
-                _messages.emit("Narudžba je prazna.")
-                return@launch
-            }
-
-            val sent = runCatching {
-                repository.sendBarOrder(draft)
-            }.getOrElse {
-                _messages.emit(it.message ?: "Slanje narudžbe na šank nije uspjelo.")
-                return@launch
-            }
-
-            if (sent) {
-                cartQuantities.value = linkedMapOf()
-                _messages.emit("Narudžba je poslana na šank.")
-            } else {
-                _messages.emit("Spoji aplikaciju online prije slanja narudžbi na šank.")
+                _messages.emit("Račun ${result.receiptNumber} je spremljen.")
+                launch {
+                    val synced = runCatching {
+                        repository.syncSavedReceiptOnline(
+                            receiptNumber = result.receiptNumber,
+                            lines = draft,
+                            note = note,
+                        )
+                    }.getOrDefault(false)
+                    if (!synced && appState.value.cloudCafeId.isNotBlank()) {
+                        _messages.emit("Račun je spremljen lokalno, ali online sync nije uspio.")
+                    }
+                }
             }
         }
     }

@@ -55,7 +55,6 @@ const els = {
   houseNote: document.querySelector("#houseNote"),
   musicNote: document.querySelector("#musicNote"),
   cartTotal: document.querySelector("#cartTotal"),
-  sendOrderButton: document.querySelector("#sendOrderButton"),
   saveReceiptButton: document.querySelector("#saveReceiptButton"),
 
   receiptFrom: document.querySelector("#receiptFrom"),
@@ -716,6 +715,15 @@ async function saveReceipt() {
     note,
     items,
   });
+  batch.set(ordersCollection().doc(), {
+    orderNumber: receiptNumber,
+    waiterId: state.user.uid,
+    waiterName: "Web Admin",
+    role: "admin",
+    createdAt: now,
+    completed: false,
+    items,
+  });
   lines.forEach((line) => {
     const currentStock = Number(line.product.stockQuantityUnits || 0);
     batch.set(productRef(line.product.id), {
@@ -734,40 +742,6 @@ async function saveReceipt() {
     renderCart();
   } finally {
     els.saveReceiptButton.disabled = false;
-  }
-}
-
-async function sendOrderToBar() {
-  const lines = Array.from(state.cart.values());
-  if (lines.length === 0) {
-    alert("Narudžba je prazna.");
-    return;
-  }
-
-  const now = Date.now();
-  const items = lines.map((line) => ({
-    productId: null,
-    cloudProductId: line.product.id,
-    name: line.product.name || "",
-    quantity: line.quantity,
-    lineTotalCents: Number(line.product.priceCents || 0) * line.quantity,
-  }));
-
-  els.sendOrderButton.disabled = true;
-  try {
-    await ordersCollection().add({
-      orderNumber: `WEB-NAR-${compactDateTime(now)}`,
-      waiterId: state.user.uid,
-      waiterName: "Web Admin",
-      role: "admin",
-      createdAt: now,
-      completed: false,
-      items,
-    });
-    state.cart.clear();
-    renderCart();
-  } finally {
-    els.sendOrderButton.disabled = false;
   }
 }
 
@@ -1269,10 +1243,6 @@ els.clearCartButton.addEventListener("click", () => {
 els.saveReceiptButton.addEventListener("click", () => saveReceipt().catch((error) => {
   console.error(error);
   alert(error.message || "Spremanje računa nije uspjelo.");
-}));
-els.sendOrderButton.addEventListener("click", () => sendOrderToBar().catch((error) => {
-  console.error(error);
-  alert(error.message || "Slanje narudžbe na šank nije uspjelo.");
 }));
 els.ordersBoard.addEventListener("change", (event) => {
   const checkbox = event.target.closest('input[type="checkbox"]');

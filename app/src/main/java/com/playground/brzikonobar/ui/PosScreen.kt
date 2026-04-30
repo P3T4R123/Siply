@@ -34,7 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
-import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.DarkMode
@@ -143,7 +142,6 @@ fun PosApp(
     onAddProduct: (Long) -> Unit,
     onAdjustQuantity: (Long, Int) -> Unit,
     onSaveReceipt: (String) -> Unit,
-    onSendBarOrder: () -> Unit,
     onDeleteLastReceipt: () -> Unit,
     onClearAllSalesData: () -> Unit,
     onResetDailyStats: () -> Unit,
@@ -288,7 +286,6 @@ fun PosApp(
                 uiState = uiState,
                 onAdjustQuantity = onAdjustQuantity,
                 onSaveReceipt = onSaveReceipt,
-                onSendBarOrder = onSendBarOrder,
                 onBackToProducts = { selectedTab = MainTab.Products },
                 modifier = Modifier.then(Modifier).padding(padding),
             )
@@ -1755,7 +1752,6 @@ private fun ReceiptTab(
     uiState: PosUiState,
     onAdjustQuantity: (Long, Int) -> Unit,
     onSaveReceipt: (String) -> Unit,
-    onSendBarOrder: () -> Unit,
     onBackToProducts: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1836,23 +1832,6 @@ private fun ReceiptTab(
                     onHouseAccountChange = { markHouseAccount = it },
                     onMusicChange = { markMusic = it },
                 )
-            }
-            item {
-                FilledTonalButton(
-                    onClick = onSendBarOrder,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp),
-                    shape = RoundedCornerShape(22.dp),
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Pošalji narudžbu na šank",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                    )
-                }
             }
             item {
                 Button(

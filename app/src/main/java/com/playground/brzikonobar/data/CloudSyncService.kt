@@ -288,6 +288,41 @@ class CloudSyncService(
             .await()
     }
 
+    suspend fun pushBarOrder(
+        config: CloudConfig,
+        session: CloudSession,
+        orderNumber: String,
+        lines: List<CloudReceiptLine>,
+    ) {
+        if (session.cafeId.isBlank() || session.userId.isBlank() || lines.isEmpty()) {
+            return
+        }
+
+        firestore(config)
+            .collection("cafes")
+            .document(session.cafeId)
+            .collection("barOrders")
+            .add(
+                mapOf(
+                    "orderNumber" to orderNumber,
+                    "waiterId" to session.userId,
+                    "waiterName" to session.userName,
+                    "role" to session.userRole,
+                    "createdAt" to System.currentTimeMillis(),
+                    "completed" to false,
+                    "items" to lines.map { line ->
+                        mapOf(
+                            "productId" to line.productId,
+                            "name" to line.name,
+                            "quantity" to line.quantity,
+                            "lineTotalCents" to line.lineTotalCents,
+                        )
+                    },
+                ),
+            )
+            .await()
+    }
+
     suspend fun upsertCatalogProduct(
         config: CloudConfig,
         session: CloudSession,
@@ -433,6 +468,10 @@ class CloudSyncService(
             .collection("cafes")
             .document(session.cafeId)
             .collection("receipts")
+        val ordersCollection = firestore
+            .collection("cafes")
+            .document(session.cafeId)
+            .collection("barOrders")
         val productsCollection = firestore
             .collection("cafes")
             .document(session.cafeId)
@@ -440,6 +479,19 @@ class CloudSyncService(
 
         while (true) {
             val snapshot = collection.limit(400).get().await()
+            if (snapshot.isEmpty) {
+                break
+            }
+
+            firestore.runBatch { batch ->
+                snapshot.documents.forEach { document ->
+                    batch.delete(document.reference)
+                }
+            }.await()
+        }
+
+        while (true) {
+            val snapshot = ordersCollection.limit(400).get().await()
             if (snapshot.isEmpty) {
                 break
             }

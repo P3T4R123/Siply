@@ -504,6 +504,30 @@ class MainViewModel(
         }
     }
 
+    fun sendCurrentOrderToBar() {
+        viewModelScope.launch {
+            val draft = buildDraftLines()
+            if (draft.isEmpty()) {
+                _messages.emit("Narudžba je prazna.")
+                return@launch
+            }
+
+            val sent = runCatching {
+                repository.sendBarOrder(draft)
+            }.getOrElse {
+                _messages.emit(it.message ?: "Slanje narudžbe na šank nije uspjelo.")
+                return@launch
+            }
+
+            if (sent) {
+                cartQuantities.value = linkedMapOf()
+                _messages.emit("Narudžba je poslana na šank.")
+            } else {
+                _messages.emit("Spoji aplikaciju online prije slanja narudžbi na šank.")
+            }
+        }
+    }
+
     suspend fun addCatalogProduct(
         categoryId: Long?,
         name: String,

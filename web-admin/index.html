@@ -36,6 +36,7 @@
 
       <nav class="tabs" aria-label="Web admin navigacija">
         <button class="tab active" data-tab="dashboard">Dashboard</button>
+        <button class="tab" data-tab="orders">Narudžbe</button>
         <button class="tab" data-tab="pos">POS</button>
         <button class="tab" data-tab="receipts">Računi</button>
         <button class="tab" data-tab="catalog">Artikli</button>
@@ -85,6 +86,22 @@
         </section>
       </section>
 
+      <section id="ordersTab" class="tab-panel hidden">
+        <section class="panel orders-panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Šank</p>
+              <h2>Narudžbe za pripremu</h2>
+            </div>
+            <div class="orders-legend">
+              <span><strong id="openOrdersCount">0</strong> aktivnih</span>
+              <span><strong id="doneOrdersCount">0</strong> gotovih</span>
+            </div>
+          </div>
+          <div id="ordersBoard" class="orders-board"></div>
+        </section>
+      </section>
+
       <section id="posTab" class="tab-panel hidden">
         <section class="pos-layout">
           <article class="panel">
@@ -113,6 +130,7 @@
               <span>Ukupno</span>
               <strong id="cartTotal">0,00 EUR</strong>
             </div>
+            <button id="sendOrderButton" class="secondary big">Pošalji narudžbu na šank</button>
             <button id="saveReceiptButton" class="primary big">Spremi račun</button>
           </aside>
         </section>

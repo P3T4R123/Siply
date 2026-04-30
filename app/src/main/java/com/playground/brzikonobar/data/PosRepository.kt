@@ -549,6 +549,32 @@ class PosRepository(
         return result.copy(cloudSynced = cloudSynced)
     }
 
+    suspend fun sendBarOrder(lines: List<ReceiptDraftLine>): Boolean {
+        if (lines.isEmpty()) {
+            return false
+        }
+
+        val state = dao.getAppState() ?: return false
+        val config = state.toCloudConfigOrNull() ?: return false
+        val session = state.toCloudSessionOrNull() ?: return false
+        val orderNumber = "NAR-${Instant.now(clock).toEpochMilli()}"
+
+        cloudSyncService.pushBarOrder(
+            config = config,
+            session = session,
+            orderNumber = orderNumber,
+            lines = lines.map { line ->
+                CloudReceiptLine(
+                    productId = line.productId,
+                    name = line.productName,
+                    quantity = line.quantity,
+                    lineTotalCents = line.lineTotalCents,
+                )
+            },
+        )
+        return true
+    }
+
     suspend fun createOnlineCafe(
         cafeName: String,
         adminName: String,

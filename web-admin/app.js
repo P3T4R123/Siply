@@ -9,10 +9,12 @@ const state = {
   cafeName: "",
   products: [],
   receipts: [],
+  orders: [],
   cart: new Map(),
   activeCategory: "all",
   productUnsubscribe: null,
   receiptUnsubscribe: null,
+  orderUnsubscribe: null,
 };
 
 const els = {
@@ -41,6 +43,10 @@ const els = {
   productChart: document.querySelector("#productChart"),
   hourChart: document.querySelector("#hourChart"),
 
+  ordersBoard: document.querySelector("#ordersBoard"),
+  openOrdersCount: document.querySelector("#openOrdersCount"),
+  doneOrdersCount: document.querySelector("#doneOrdersCount"),
+
   posSearchInput: document.querySelector("#posSearchInput"),
   categoryChips: document.querySelector("#categoryChips"),
   productCards: document.querySelector("#productCards"),
@@ -49,6 +55,7 @@ const els = {
   houseNote: document.querySelector("#houseNote"),
   musicNote: document.querySelector("#musicNote"),
   cartTotal: document.querySelector("#cartTotal"),
+  sendOrderButton: document.querySelector("#sendOrderButton"),
   saveReceiptButton: document.querySelector("#saveReceiptButton"),
 
   receiptFrom: document.querySelector("#receiptFrom"),
@@ -158,6 +165,7 @@ async function connect(rawPayload) {
     showAdmin();
     subscribeProducts();
     subscribeReceipts();
+    subscribeOrders();
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Spajanje nije uspjelo.", true);
@@ -186,6 +194,10 @@ function productsCollection() {
 
 function receiptsCollection() {
   return cafeDoc().collection("receipts");
+}
+
+function ordersCollection() {
+  return cafeDoc().collection("barOrders");
 }
 
 function productRef(id) {
@@ -224,6 +236,20 @@ function subscribeReceipts() {
     });
 }
 
+function subscribeOrders() {
+  if (state.orderUnsubscribe) state.orderUnsubscribe();
+
+  state.orderUnsubscribe = ordersCollection()
+    .orderBy("createdAt", "desc")
+    .onSnapshot((snapshot) => {
+      state.orders = snapshot.docs.map((doc) => normalizeOrder(doc));
+      renderOrders();
+    }, (error) => {
+      console.error(error);
+      alert("Ne mogu učitati narudžbe za šank. Provjeri Firestore rules.");
+    });
+}
+
 function normalizeReceipt(doc) {
   const data = doc.data();
   const items = Array.isArray(data.items) ? data.items.map((item) => ({
@@ -247,14 +273,84 @@ function normalizeReceipt(doc) {
   };
 }
 
+function normalizeOrder(doc) {
+  const data = doc.data();
+  const items = Array.isArray(data.items) ? data.items.map((item) => ({
+    name: String(item.name || ""),
+    quantity: Number(item.quantity || 0),
+  })) : [];
+
+  return {
+    id: doc.id,
+    orderNumber: String(data.orderNumber || doc.id),
+    waiterId: String(data.waiterId || ""),
+    waiterName: String(data.waiterName || "Nepoznato"),
+    createdAt: Number(data.createdAt || 0),
+    completed: data.completed === true,
+    completedAt: Number(data.completedAt || 0),
+    items,
+  };
+}
+
 function renderAll() {
   renderWaiterOptions();
   renderDashboard();
   renderPos();
   renderCart();
+  renderOrders();
   renderReceipts();
   renderCatalog();
   renderProcurement();
+}
+
+function renderOrders() {
+  const openOrders = state.orders
+    .filter((order) => !order.completed)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const doneOrders = state.orders
+    .filter((order) => order.completed)
+    .sort((a, b) => b.completedAt - a.completedAt || b.createdAt - a.createdAt)
+    .slice(0, 12);
+  const visibleOrders = openOrders.concat(doneOrders);
+
+  els.openOrdersCount.textContent = openOrders.length.toString();
+  els.doneOrdersCount.textContent = state.orders.filter((order) => order.completed).length.toString();
+
+  if (visibleOrders.length === 0) {
+    els.ordersBoard.innerHTML = `
+      <div class="empty orders-empty">
+        Nema narudžbi za šank. Kad konobar pošalje narudžbu s mobitela, ovdje se pojavi kao veliki papirić.
+      </div>`;
+    return;
+  }
+
+  els.ordersBoard.innerHTML = visibleOrders.map((order, index) => `
+    <article class="order-note ${order.completed ? "done" : ""}" data-order-id="${order.id}" style="--tilt:${orderTilt(index)}deg">
+      <label class="order-check">
+        <input type="checkbox" ${order.completed ? "checked" : ""}>
+        <span>${order.completed ? "Gotovo" : "Označi gotovo"}</span>
+      </label>
+      <div class="order-top">
+        <strong>${escapeHtml(order.waiterName)}</strong>
+        <span>${formatTime(order.createdAt)}</span>
+      </div>
+      <p class="order-number">${escapeHtml(order.orderNumber)}</p>
+      <ul class="order-items">
+        ${order.items.map((item) => `
+          <li><span>${item.quantity}x</span><strong>${escapeHtml(item.name)}</strong></li>
+        `).join("")}
+      </ul>
+    </article>
+  `).join("");
+}
+
+async function toggleOrderCompleted(orderId, completed) {
+  await ordersCollection().doc(orderId).set({
+    completed,
+    completedAt: completed ? Date.now() : 0,
+    completedByUid: completed ? state.user.uid : "",
+    updatedAt: Date.now(),
+  }, { merge: true });
 }
 
 function setDefaultDates() {
@@ -616,6 +712,40 @@ async function saveReceipt() {
   }
 }
 
+async function sendOrderToBar() {
+  const lines = Array.from(state.cart.values());
+  if (lines.length === 0) {
+    alert("Narudžba je prazna.");
+    return;
+  }
+
+  const now = Date.now();
+  const items = lines.map((line) => ({
+    productId: null,
+    cloudProductId: line.product.id,
+    name: line.product.name || "",
+    quantity: line.quantity,
+    lineTotalCents: Number(line.product.priceCents || 0) * line.quantity,
+  }));
+
+  els.sendOrderButton.disabled = true;
+  try {
+    await ordersCollection().add({
+      orderNumber: `WEB-NAR-${compactDateTime(now)}`,
+      waiterId: state.user.uid,
+      waiterName: "Web Admin",
+      role: "admin",
+      createdAt: now,
+      completed: false,
+      items,
+    });
+    state.cart.clear();
+    renderCart();
+  } finally {
+    els.sendOrderButton.disabled = false;
+  }
+}
+
 async function saveProcurement() {
   const rows = Array.from(document.querySelectorAll(".procurement-row"));
   const updates = rows.map((row) => {
@@ -651,6 +781,14 @@ async function resetAllReceipts() {
   try {
     while (true) {
       const snapshot = await receiptsCollection().limit(450).get();
+      if (snapshot.empty) break;
+      const batch = state.db.batch();
+      snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+      await batch.commit();
+    }
+
+    while (true) {
+      const snapshot = await ordersCollection().limit(450).get();
       if (snapshot.empty) break;
       const batch = state.db.batch();
       snapshot.docs.forEach((doc) => batch.delete(doc.ref));
@@ -970,6 +1108,18 @@ function formatDateTime(millis) {
   }).format(new Date(millis));
 }
 
+function formatTime(millis) {
+  if (!millis) return "";
+  return new Intl.DateTimeFormat("hr-HR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(millis));
+}
+
+function orderTilt(index) {
+  return [-1.2, 0.7, -0.4, 1.1, -0.8, 0.4][index % 6];
+}
+
 function compactDateTime(millis) {
   const date = new Date(millis);
   const pad = (value) => value.toString().padStart(2, "0");
@@ -1020,6 +1170,7 @@ els.logoutButton.addEventListener("click", async () => {
   localStorage.removeItem(STORAGE_KEY);
   if (state.productUnsubscribe) state.productUnsubscribe();
   if (state.receiptUnsubscribe) state.receiptUnsubscribe();
+  if (state.orderUnsubscribe) state.orderUnsubscribe();
   if (state.auth) await state.auth.signOut();
   showLogin();
 });
@@ -1060,6 +1211,21 @@ els.saveReceiptButton.addEventListener("click", () => saveReceipt().catch((error
   console.error(error);
   alert(error.message || "Spremanje računa nije uspjelo.");
 }));
+els.sendOrderButton.addEventListener("click", () => sendOrderToBar().catch((error) => {
+  console.error(error);
+  alert(error.message || "Slanje narudžbe na šank nije uspjelo.");
+}));
+els.ordersBoard.addEventListener("change", (event) => {
+  const checkbox = event.target.closest('input[type="checkbox"]');
+  if (!checkbox) return;
+  const note = checkbox.closest("[data-order-id]");
+  if (!note) return;
+  toggleOrderCompleted(note.dataset.orderId, checkbox.checked).catch((error) => {
+    console.error(error);
+    checkbox.checked = !checkbox.checked;
+    alert(error.message || "Označavanje narudžbe nije uspjelo.");
+  });
+});
 els.newProductForm.addEventListener("submit", (event) => createProduct(event).catch((error) => {
   console.error(error);
   alert(error.message || "Dodavanje artikla nije uspjelo.");

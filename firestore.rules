@@ -103,6 +103,19 @@ service cloud.firestore {
         allow update: if false;
         allow delete: if isAdmin(cafeId);
       }
+
+      match /barOrders/{orderId} {
+        allow get, list: if isMember(cafeId);
+
+        allow create: if isMember(cafeId)
+          && request.resource.data.waiterId == request.auth.uid
+          && request.resource.data.waiterName is string
+          && request.resource.data.createdAt is int
+          && request.resource.data.completed == false
+          && request.resource.data.items is list;
+
+        allow update, delete: if isAdmin(cafeId);
+      }
     }
 
     match /{document=**} {

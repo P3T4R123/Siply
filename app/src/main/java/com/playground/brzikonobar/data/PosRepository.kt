@@ -389,6 +389,7 @@ class PosRepository(
                 }
             }
             dao.deactivateCloudProductsNotIn(cafeId, cloudProductIds)
+            dao.unlinkCloudProductsNotIn(cafeId, cloudProductIds)
             dao.deactivateLocalOnlyProducts()
         }
     }
@@ -1211,6 +1212,9 @@ class PosRepository(
         val inventoryByProductId = dao.getAllInventoryStocks().associateBy { stock -> stock.productId }
 
         products.forEach { product ->
+            if (!product.isActive && product.cloudProductId.isBlank()) {
+                return@forEach
+            }
             val categoryName = categories[product.categoryId]?.name ?: return@forEach
             val stock = inventoryByProductId[product.id]
             runCatching {

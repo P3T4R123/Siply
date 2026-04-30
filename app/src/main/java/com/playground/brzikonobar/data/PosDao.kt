@@ -133,6 +133,22 @@ interface PosDao {
     @Query(
         """
         UPDATE products
+        SET cloudCafeId = '',
+            cloudProductId = '',
+            isActive = 0
+        WHERE cloudCafeId = :cloudCafeId
+            AND cloudProductId != ''
+            AND cloudProductId NOT IN (:cloudProductIds)
+        """
+    )
+    suspend fun unlinkCloudProductsNotIn(
+        cloudCafeId: String,
+        cloudProductIds: List<String>,
+    )
+
+    @Query(
+        """
+        UPDATE products
         SET isActive = 0
         WHERE cloudCafeId = ''
             AND cloudProductId = ''

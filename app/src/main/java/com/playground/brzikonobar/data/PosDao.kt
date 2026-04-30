@@ -130,6 +130,16 @@ interface PosDao {
         cloudProductIds: List<String>,
     )
 
+    @Query(
+        """
+        UPDATE products
+        SET isActive = 0
+        WHERE cloudCafeId = ''
+            AND cloudProductId = ''
+        """
+    )
+    suspend fun deactivateLocalOnlyProducts()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertInventoryStock(stock: InventoryStockEntity)
 

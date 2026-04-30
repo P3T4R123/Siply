@@ -389,6 +389,7 @@ class PosRepository(
                 }
             }
             dao.deactivateCloudProductsNotIn(cafeId, cloudProductIds)
+            dao.deactivateLocalOnlyProducts()
         }
     }
 

@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
                         onResetDailyStats = viewModel::resetDailyStats,
                         onToggleDarkMode = viewModel::toggleDarkMode,
                         onAddCatalogProduct = viewModel::addCatalogProduct,
+                        onUpdateProductImage = viewModel::updateProductImage,
                         onSetInventoryQuantities = viewModel::setInventoryQuantities,
                         onAddProcurementEntries = viewModel::addProcurementEntries,
                         onSaveCurrentPriceList = viewModel::saveCurrentPriceListVersion,

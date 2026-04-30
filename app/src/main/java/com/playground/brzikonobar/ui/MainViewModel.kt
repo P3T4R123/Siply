@@ -52,6 +52,7 @@ data class ProductUi(
     val name: String,
     val priceLabel: String,
     val emoji: String,
+    val imageDataUrl: String,
     val accentColor: Long,
     val quantityInCart: Int,
 )
@@ -559,6 +560,25 @@ class MainViewModel(
         return true
     }
 
+    suspend fun updateProductImage(
+        productId: Long,
+        imageDataUrl: String,
+    ): Boolean {
+        if (imageDataUrl.isBlank()) {
+            _messages.emit("Slika nije odabrana.")
+            return false
+        }
+
+        return runCatching {
+            repository.updateProductImage(productId, imageDataUrl)
+            _messages.emit("Slika artikla je spremljena.")
+            true
+        }.getOrElse {
+            _messages.emit(it.message ?: "Spremanje slike nije uspjelo.")
+            false
+        }
+    }
+
     suspend fun setInventoryQuantity(
         productId: Long,
         quantityInput: String,
@@ -886,6 +906,7 @@ class MainViewModel(
                     name = row.productName,
                     priceLabel = formatCurrency(row.priceCents),
                     emoji = row.emoji,
+                    imageDataUrl = row.imageDataUrl,
                     accentColor = row.accentColor,
                     quantityInCart = cart[row.productId] ?: 0,
                 )

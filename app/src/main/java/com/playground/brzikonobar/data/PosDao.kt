@@ -16,6 +16,7 @@ interface PosDao {
             p.name AS productName,
             p.priceCents AS priceCents,
             p.emoji AS emoji,
+            p.imageDataUrl AS imageDataUrl,
             p.accentColor AS accentColor,
             p.sortOrder AS productSortOrder,
             c.id AS categoryId,

@@ -367,6 +367,7 @@ class PosRepository(
                         name = product.name,
                         priceCents = product.priceCents,
                         emoji = product.emoji.ifBlank { existing?.emoji ?: style.emoji },
+                        imageDataUrl = product.imageDataUrl.ifBlank { existing?.imageDataUrl.orEmpty() },
                         accentColor = product.accentColor.takeIf { it != 0L }
                             ?: existing?.accentColor
                             ?: style.accentColor,
@@ -436,6 +437,29 @@ class PosRepository(
                 productId = nextId,
                 updatedAtMillis = Instant.now(clock).toEpochMilli(),
             )
+
+            pendingConfig = state.toCloudConfigOrNull()
+            pendingSession = state.toCloudSessionOrNull()?.takeIf { session ->
+                session.userRole == "admin"
+            }
+        }
+
+        if (pendingConfig != null && pendingSession != null) {
+            syncCatalogToCloud(pendingConfig!!, pendingSession!!)
+        }
+    }
+
+    suspend fun updateProductImage(
+        productId: Long,
+        imageDataUrl: String,
+    ) {
+        var pendingConfig: CloudConfig? = null
+        var pendingSession: CloudSession? = null
+
+        database.withTransaction {
+            val state = ensureSeededAndState(now = Instant.now(clock))
+            val product = dao.getProductById(productId) ?: error("Artikl nije pronađen.")
+            dao.insertProduct(product.copy(imageDataUrl = imageDataUrl.trim()))
 
             pendingConfig = state.toCloudConfigOrNull()
             pendingSession = state.toCloudSessionOrNull()?.takeIf { session ->
@@ -1214,6 +1238,7 @@ class PosRepository(
                         name = product.name,
                         priceCents = product.priceCents,
                         emoji = product.emoji,
+                        imageDataUrl = product.imageDataUrl,
                         accentColor = product.accentColor,
                         sortOrder = product.sortOrder,
                         isActive = product.isActive,
@@ -1321,6 +1346,7 @@ class PosRepository(
                     name = productName,
                     priceCents = item.priceCents,
                     emoji = item.emoji.ifBlank { existing?.emoji ?: style.emoji },
+                    imageDataUrl = existing?.imageDataUrl.orEmpty(),
                     accentColor = item.accentColor.takeIf { it != 0L }
                         ?: existing?.accentColor
                         ?: style.accentColor,
@@ -1569,6 +1595,7 @@ class PosRepository(
         .put("name", name)
         .put("priceCents", priceCents)
         .put("emoji", emoji)
+        .put("imageDataUrl", imageDataUrl)
         .put("accentColor", accentColor)
         .put("sortOrder", sortOrder)
         .put("isActive", isActive)
@@ -1657,6 +1684,7 @@ class PosRepository(
         name = optString("name"),
         priceCents = optInt("priceCents", 0),
         emoji = optString("emoji"),
+        imageDataUrl = optString("imageDataUrl"),
         accentColor = optLong("accentColor", 0L),
         sortOrder = optInt("sortOrder", 0),
         isActive = optBoolean("isActive", true),

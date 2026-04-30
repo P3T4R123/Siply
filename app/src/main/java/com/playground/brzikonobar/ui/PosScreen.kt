@@ -2,11 +2,13 @@ package com.playground.siply.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -83,6 +85,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -100,6 +103,7 @@ import com.playground.siply.data.ExportPayload
 import com.playground.siply.data.LastReceiptInfo
 import com.playground.siply.formatCurrency
 import java.text.DecimalFormat
+import java.io.ByteArrayOutputStream
 import java.time.Instant
 import java.time.LocalDate
 import java.time.YearMonth
@@ -145,6 +149,7 @@ fun PosApp(
     onResetDailyStats: () -> Unit,
     onToggleDarkMode: () -> Unit,
     onAddCatalogProduct: suspend (Long?, String, String) -> Boolean,
+    onUpdateProductImage: suspend (Long, String) -> Boolean,
     onSetInventoryQuantities: suspend (Map<Long, String>) -> Boolean,
     onAddProcurementEntries: suspend (Map<Long, String>, String) -> Boolean,
     onSaveCurrentPriceList: suspend (String) -> Boolean,
@@ -319,6 +324,7 @@ fun PosApp(
                 uiState = uiState,
                 onSelectCategory = onSelectCategory,
                 onAddCatalogProduct = onAddCatalogProduct,
+                onUpdateProductImage = onUpdateProductImage,
                 onSetInventoryQuantities = onSetInventoryQuantities,
                 onAddProcurementEntries = onAddProcurementEntries,
                 onSaveCurrentPriceList = onSaveCurrentPriceList,
@@ -666,6 +672,7 @@ private fun SettingsTab(
     uiState: PosUiState,
     onSelectCategory: (Long) -> Unit,
     onAddCatalogProduct: suspend (Long?, String, String) -> Boolean,
+    onUpdateProductImage: suspend (Long, String) -> Boolean,
     onSetInventoryQuantities: suspend (Map<Long, String>) -> Boolean,
     onAddProcurementEntries: suspend (Map<Long, String>, String) -> Boolean,
     onSaveCurrentPriceList: suspend (String) -> Boolean,
@@ -699,6 +706,7 @@ private fun SettingsTab(
     var webAdminPayload by rememberSaveable { mutableStateOf("") }
     var pendingPriceListExport by remember { mutableStateOf<ExportPayload?>(null) }
     var pendingBackupExport by remember { mutableStateOf<ExportPayload?>(null) }
+    var pendingImageProductId by remember { mutableStateOf<Long?>(null) }
     var backupLoading by rememberSaveable { mutableStateOf(false) }
     var backupStatusMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var backupStatusSuccess by rememberSaveable { mutableStateOf<Boolean?>(null) }
@@ -742,6 +750,21 @@ private fun SettingsTab(
                 "Cjenik je importan i odmah aktiviran."
             } else {
                 "Import cjenika nije uspio. Provjeri format CSV-a."
+            }
+        }
+    }
+    val productImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        val productId = pendingImageProductId
+        pendingImageProductId = null
+        if (uri == null || productId == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val imageDataUrl = buildProductImageDataUrl(context, uri)
+            if (imageDataUrl != null) {
+                onUpdateProductImage(productId, imageDataUrl)
+            } else {
+                onUpdateProductImage(productId, "")
             }
         }
     }
@@ -1672,9 +1695,15 @@ private fun SettingsTab(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
+                                    ProductThumbnail(
+                                        imageDataUrl = product.imageDataUrl,
+                                        emoji = product.emoji,
+                                        accentColor = product.accentColor,
+                                        modifier = Modifier.size(58.dp),
+                                    )
                                     Column(
                                         modifier = Modifier.weight(1f),
                                         verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -1690,7 +1719,14 @@ private fun SettingsTab(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
-                                    Text(text = product.emoji, fontSize = 24.sp)
+                                    FilledTonalButton(
+                                        onClick = {
+                                            pendingImageProductId = product.id
+                                            productImageLauncher.launch("image/*")
+                                        },
+                                    ) {
+                                        Text("Promijeni sliku")
+                                    }
                                 }
                             }
                         }
@@ -3768,7 +3804,14 @@ private fun ProductCard(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(text = product.emoji, fontSize = 42.sp)
+                    ProductThumbnail(
+                        imageDataUrl = product.imageDataUrl,
+                        emoji = product.emoji,
+                        accentColor = product.accentColor,
+                        modifier = Modifier.fillMaxSize(),
+                        imageShape = RoundedCornerShape(22.dp),
+                        emojiSize = 42,
+                    )
                 }
 
                 if (product.quantityInCart > 0) {
@@ -3793,6 +3836,42 @@ private fun ProductCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun ProductThumbnail(
+    imageDataUrl: String,
+    emoji: String,
+    accentColor: Long,
+    modifier: Modifier = Modifier,
+    imageShape: RoundedCornerShape = RoundedCornerShape(16.dp),
+    emojiSize: Int = 24,
+) {
+    val bitmap = remember(imageDataUrl) { decodeImageDataUrl(imageDataUrl) }
+    Box(
+        modifier = modifier
+            .clip(imageShape)
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(accentColor),
+                        Color(accentColor).copy(alpha = 0.58f),
+                    ),
+                ),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(text = emoji, fontSize = emojiSize.sp)
         }
     }
 }
@@ -4152,6 +4231,49 @@ private fun writeTextDocument(
         }
     } ?: error("Nije moguće otvoriti datoteku.")
 }.isSuccess
+
+private fun buildProductImageDataUrl(
+    context: Context,
+    uri: Uri,
+): String? = runCatching {
+    val original = context.contentResolver.openInputStream(uri)?.use { input ->
+        BitmapFactory.decodeStream(input)
+    } ?: return null
+    val bitmap = scaleBitmapForProductImage(original)
+    val output = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 76, output)
+    val encoded = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+    "data:image/jpeg;base64,$encoded"
+}.getOrNull()
+
+private fun scaleBitmapForProductImage(bitmap: Bitmap): Bitmap {
+    val maxSide = 420
+    val width = bitmap.width
+    val height = bitmap.height
+    val largestSide = maxOf(width, height)
+    if (largestSide <= maxSide) {
+        return bitmap
+    }
+
+    val ratio = maxSide.toFloat() / largestSide.toFloat()
+    val targetWidth = (width * ratio).toInt().coerceAtLeast(1)
+    val targetHeight = (height * ratio).toInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+}
+
+private fun decodeImageDataUrl(imageDataUrl: String): Bitmap? {
+    if (imageDataUrl.isBlank()) {
+        return null
+    }
+    val base64 = imageDataUrl.substringAfter("base64,", missingDelimiterValue = "")
+    if (base64.isBlank()) {
+        return null
+    }
+    return runCatching {
+        val bytes = Base64.decode(base64, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
+}
 
 private fun writeBinaryDocument(
     context: Context,

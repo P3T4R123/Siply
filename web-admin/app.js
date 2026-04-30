@@ -447,7 +447,7 @@ function renderPos() {
 
   els.productCards.innerHTML = products.map((product) => `
     <button class="product-card" data-product-id="${product.id}">
-      <span class="product-emoji">${escapeHtml(product.emoji || "☕")}</span>
+      ${productVisualHtml(product, "product-visual")}
       <strong>${escapeHtml(product.name || "")}</strong>
       <small>${escapeHtml(product.categoryName || "")}</small>
       <span>${formatEuro(product.priceCents || 0)}</span>
@@ -534,7 +534,7 @@ function renderCatalog() {
 
   const header = `
     <div class="table-header product-table-header">
-      <span>Kategorija</span><span>Artikl</span><span>Cijena</span><span>Stanje</span><span>Emoji</span><span>Aktivan</span><span></span>
+      <span>Slika</span><span>Kategorija</span><span>Artikl</span><span>Cijena</span><span>Stanje</span><span>Emoji</span><span>Aktivan</span><span></span>
     </div>`;
 
   els.productsTable.innerHTML = header + visibleProducts.map((product) => productRow(product)).join("");
@@ -543,6 +543,7 @@ function renderCatalog() {
 function productRow(product) {
   return `
     <div class="product-row" data-id="${product.id}">
+      ${productVisualHtml(product, "table-product-visual")}
       <input data-field="categoryName" value="${escapeAttr(product.categoryName || "")}">
       <input data-field="name" value="${escapeAttr(product.name || "")}">
       <input data-field="price" inputmode="decimal" value="${formatPriceInput(product.priceCents || 0)}">
@@ -550,10 +551,18 @@ function productRow(product) {
       <input data-field="emoji" value="${escapeAttr(product.emoji || "")}">
       <label class="active-cell"><input data-field="active" type="checkbox" ${product.isActive === false ? "" : "checked"}></label>
       <div class="row-actions">
+        <button class="secondary" data-action="image">Slika</button>
         <button class="primary" data-action="save">Spremi</button>
         <button class="danger" data-action="delete">Obriši</button>
       </div>
     </div>`;
+}
+
+function productVisualHtml(product, className) {
+  if (product.imageDataUrl) {
+    return `<span class="${className}"><img src="${escapeAttr(product.imageDataUrl)}" alt=""></span>`;
+  }
+  return `<span class="${className} product-emoji">${escapeHtml(product.emoji || "☕")}</span>`;
 }
 
 function renderProcurement() {
@@ -597,6 +606,7 @@ async function saveExistingProduct(row) {
     stockQuantityUnits: parseStock(readField(row, "stock")),
     stockUpdatedAt: Date.now(),
     emoji: readField(row, "emoji").trim() || "☕",
+    imageDataUrl: existing.imageDataUrl || "",
     accentColor: Number(existing.accentColor || 0),
     sortOrder: Number(existing.sortOrder || 1),
     isActive: row.querySelector('[data-field="active"]').checked,
@@ -610,6 +620,20 @@ async function deleteProduct(row) {
   if (!existing) return;
   if (!confirm(`Obrisati artikl "${existing.name}"?`)) return;
   await productRef(id).delete();
+}
+
+async function changeProductImage(row) {
+  const id = row.dataset.id;
+  const existing = state.products.find((product) => product.id === id);
+  if (!existing) return;
+
+  const file = await pickImageFile();
+  if (!file) return;
+  const imageDataUrl = await imageFileToProductDataUrl(file);
+  await productRef(id).set({
+    imageDataUrl,
+    updatedAt: Date.now(),
+  }, { merge: true });
 }
 
 async function createProduct(event) {
@@ -629,6 +653,7 @@ async function createProduct(event) {
     stockQuantityUnits: parseStock(els.newStock.value),
     stockUpdatedAt: Date.now(),
     emoji: els.newEmoji.value.trim() || "☕",
+    imageDataUrl: "",
     accentColor: 0,
     sortOrder: nextSortOrder(categoryName),
     isActive: true,
@@ -934,6 +959,7 @@ async function importCatalogCsv(file) {
       stockQuantityUnits: parseStock(stock || "0"),
       stockUpdatedAt: Date.now(),
       emoji: (emoji || "").trim() || "☕",
+      imageDataUrl: existing?.imageDataUrl || "",
       accentColor: Number(existing?.accentColor || 0),
       sortOrder: Number(existing?.sortOrder || nextSortOrder(categoryName)),
       isActive: !["ne", "false", "0"].includes(String(active || "da").trim().toLowerCase()),
@@ -1073,6 +1099,39 @@ function parseStock(value) {
   const parsed = Number.parseInt(String(value || "0").trim(), 10);
   if (!Number.isFinite(parsed)) throw new Error("Stanje nije valjano.");
   return parsed;
+}
+
+function pickImageFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.addEventListener("change", () => resolve(input.files?.[0] || null), { once: true });
+    input.click();
+  });
+}
+
+function imageFileToProductDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Ne mogu pročitati sliku."));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Slika nije valjana."));
+      image.onload = () => {
+        const maxSide = 420;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.76));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 function rawStock(product) {
@@ -1235,7 +1294,11 @@ els.productsTable.addEventListener("click", (event) => {
   if (!button) return;
   const row = button.closest(".product-row");
   button.disabled = true;
-  const task = button.dataset.action === "delete" ? deleteProduct(row) : saveExistingProduct(row);
+  const task = button.dataset.action === "delete"
+    ? deleteProduct(row)
+    : button.dataset.action === "image"
+      ? changeProductImage(row)
+      : saveExistingProduct(row);
   task.catch((error) => {
     console.error(error);
     alert(error.message || "Akcija nije uspjela.");

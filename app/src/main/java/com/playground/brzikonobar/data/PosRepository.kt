@@ -320,6 +320,13 @@ class PosRepository(
             cloudSyncService.observeCatalogProducts(config, session)
         }
 
+    fun observeCloudMemberProfile(): Flow<CloudMemberProfile?> =
+        observeAppState().flatMapLatest { state ->
+            val config = state.toCloudConfigOrNull() ?: return@flatMapLatest flowOf(null)
+            val session = state.toCloudSessionOrNull() ?: return@flatMapLatest flowOf(null)
+            cloudSyncService.observeMemberProfile(config, session)
+        }
+
     suspend fun syncCloudCatalog(products: List<CloudCatalogProduct>) {
         if (products.isEmpty()) {
             return
@@ -694,6 +701,30 @@ class PosRepository(
         val config = state.toCloudConfigOrNull() ?: return
         val session = state.toCloudSessionOrNull() ?: return
         refreshCloudMemberNow(state, config, session)
+    }
+
+    suspend fun applyCloudMemberProfile(profile: CloudMemberProfile) {
+        val state = dao.getAppState() ?: return
+        val nextCanUseHouseAccount = profile.role == "admin" || profile.canUseHouseAccount
+        val nextCanUseMusic = profile.role == "admin" || profile.canUseMusic
+        if (
+            state.cloudUserName == profile.name &&
+            state.cloudUserRole == profile.role &&
+            state.canUseHouseAccount == nextCanUseHouseAccount &&
+            state.canUseMusic == nextCanUseMusic
+        ) {
+            return
+        }
+        database.withTransaction {
+            dao.upsertAppState(
+                state.copy(
+                    cloudUserName = profile.name,
+                    cloudUserRole = profile.role,
+                    canUseHouseAccount = nextCanUseHouseAccount,
+                    canUseMusic = nextCanUseMusic,
+                ),
+            )
+        }
     }
 
     private suspend fun refreshCloudMemberNow(

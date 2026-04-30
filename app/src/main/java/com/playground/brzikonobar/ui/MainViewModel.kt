@@ -422,6 +422,17 @@ class MainViewModel(
             }
         }
         viewModelScope.launch {
+            repository.observeCloudMemberProfile()
+                .catch {
+                    _messages.emit("Podaci konobara trenutno nisu dostupni.")
+                }
+                .collect { profile ->
+                    if (profile != null) {
+                        repository.applyCloudMemberProfile(profile)
+                    }
+                }
+        }
+        viewModelScope.launch {
             catalogRows.collect { rows ->
                 val categoryIds = rows.map { it.categoryId }.distinct()
                 val current = selectedCategoryId.value

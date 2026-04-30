@@ -151,13 +151,17 @@ async function connect(rawPayload) {
       throw new Error("Kafić nije pronađen.");
     }
 
-    await cafeRef.collection("members").doc(state.user.uid).set({
+    const webMemberRef = cafeRef.collection("members").doc(state.user.uid);
+    const webMemberSnapshot = await webMemberRef.get();
+    await webMemberRef.set({
       uid: state.user.uid,
-      name: "Web Admin",
+      name: webMemberSnapshot.exists ? (webMemberSnapshot.data().name || "Web Admin") : "Web Admin",
       role: "admin",
       canUseHouseAccount: true,
       canUseMusic: true,
-      joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      joinedAt: webMemberSnapshot.exists
+        ? (webMemberSnapshot.data().joinedAt || firebase.firestore.FieldValue.serverTimestamp())
+        : firebase.firestore.FieldValue.serverTimestamp(),
       inviteCode: payload.inviteCode,
     }, { merge: true });
 
@@ -374,7 +378,7 @@ function renderOrders() {
         <span>${order.completed ? "Gotovo" : "Označi gotovo"}</span>
       </label>
       <div class="order-top">
-        <strong>${escapeHtml(order.waiterName)}</strong>
+        <strong>${escapeHtml(displayNameForOrder(order))}</strong>
         <span>${formatTime(order.createdAt)}</span>
       </div>
       <p class="order-number">${escapeHtml(order.orderNumber)}</p>
@@ -437,20 +441,33 @@ function setDefaultDates() {
 function renderWaiterOptions() {
   const waiters = uniqueWaiters();
   const html = [`<option value="all">Svi</option>`]
-    .concat(waiters.map((name) => `<option value="${escapeAttr(name)}">${escapeHtml(name)}</option>`))
+    .concat(waiters.map((waiter) => `<option value="${escapeAttr(waiter.value)}">${escapeHtml(waiter.label)}</option>`))
     .join("");
 
   const currentDashboard = els.dashboardWaiter.value || "all";
   const currentReceipt = els.receiptWaiter.value || "all";
+  const waiterValues = waiters.map((waiter) => waiter.value);
   els.dashboardWaiter.innerHTML = html;
   els.receiptWaiter.innerHTML = html;
-  els.dashboardWaiter.value = waiters.includes(currentDashboard) ? currentDashboard : "all";
-  els.receiptWaiter.value = waiters.includes(currentReceipt) ? currentReceipt : "all";
+  els.dashboardWaiter.value = waiterValues.includes(currentDashboard) ? currentDashboard : "all";
+  els.receiptWaiter.value = waiterValues.includes(currentReceipt) ? currentReceipt : "all";
 }
 
 function uniqueWaiters() {
-  return Array.from(new Set(state.receipts.map((receipt) => receipt.waiterName).filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b, "hr"));
+  const waiters = new Map();
+  state.receipts.forEach((receipt) => {
+    const value = waiterFilterValue(receipt);
+    if (!value) return;
+    waiters.set(value, displayNameForReceipt(receipt));
+  });
+  state.orders.forEach((order) => {
+    const value = waiterFilterValue(order);
+    if (!value) return;
+    waiters.set(value, displayNameForOrder(order));
+  });
+  return Array.from(waiters.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, "hr"));
 }
 
 function renderDashboard() {
@@ -468,7 +485,7 @@ function renderDashboard() {
   els.dashAverage.textContent = formatEuro(receipts.length ? Math.round(total / receipts.length) : 0);
   els.dashHouse.textContent = formatEuro(houseTotal);
 
-  renderBars(els.waiterChart, groupReceiptTotals(receipts, (receipt) => receipt.waiterName || "Nepoznato"), formatEuro);
+  renderBars(els.waiterChart, groupReceiptTotals(receipts, displayNameForReceipt), formatEuro);
   renderBars(els.categoryChart, groupItemTotals(receipts, categoryForItem), formatEuro);
   renderBars(els.productChart, groupItemTotals(receipts, (item) => item.name || "Artikl"), formatEuro, 10);
   renderBars(els.hourChart, groupReceiptTotals(receipts, (receipt) => `${new Date(receipt.createdAt).getHours().toString().padStart(2, "0")}:00`), formatEuro);
@@ -570,7 +587,7 @@ function renderReceipts() {
       <div class="receipt-head">
         <div>
           <strong>${escapeHtml(receipt.receiptNumber || receipt.id)}</strong>
-          <span>${formatDateTime(receipt.createdAt)} • ${escapeHtml(receipt.waiterName)}</span>
+          <span>${formatDateTime(receipt.createdAt)} • ${escapeHtml(displayNameForReceipt(receipt))}</span>
         </div>
         <strong>${formatEuro(receipt.totalCents)}</strong>
       </div>
@@ -778,12 +795,13 @@ async function saveReceipt() {
     lineTotalCents: Number(line.product.priceCents || 0) * line.quantity,
   }));
   const totalCents = sum(items.map((item) => item.lineTotalCents));
+  const currentUserName = displayNameForWaiter(state.user.uid, "Web Admin");
 
   const batch = state.db.batch();
   batch.set(receiptsCollection().doc(), {
     receiptNumber,
     waiterId: state.user.uid,
-    waiterName: "Web Admin",
+    waiterName: currentUserName,
     role: "admin",
     createdAt: now,
     totalCents,
@@ -793,7 +811,7 @@ async function saveReceipt() {
   batch.set(ordersCollection().doc(), {
     orderNumber: receiptNumber,
     waiterId: state.user.uid,
-    waiterName: "Web Admin",
+    waiterName: currentUserName,
     role: "admin",
     createdAt: now,
     completed: false,
@@ -916,7 +934,7 @@ function filteredReceipts({ from, to, waiter, note }) {
   return state.receipts.filter((receipt) => {
     if (start && receipt.createdAt < start) return false;
     if (end && receipt.createdAt > end) return false;
-    if (waiter && waiter !== "all" && receipt.waiterName !== waiter) return false;
+    if (waiter && waiter !== "all" && waiterFilterValue(receipt) !== waiter) return false;
     if (note === "notes" && !receipt.note) return false;
     if (note === "house" && !receipt.note.includes("Na račun kuće")) return false;
     if (note === "music" && !receipt.note.includes("Muzika")) return false;
@@ -955,6 +973,25 @@ function categoryForItem(item) {
   return product?.categoryName || "Ostalo";
 }
 
+function waiterFilterValue(record) {
+  if (record.waiterId) return `id:${record.waiterId}`;
+  if (record.waiterName) return `name:${record.waiterName}`;
+  return "";
+}
+
+function displayNameForReceipt(receipt) {
+  return displayNameForWaiter(receipt.waiterId, receipt.waiterName);
+}
+
+function displayNameForOrder(order) {
+  return displayNameForWaiter(order.waiterId, order.waiterName);
+}
+
+function displayNameForWaiter(waiterId, fallbackName) {
+  const member = state.members.find((item) => item.uid === waiterId || item.id === waiterId);
+  return member?.name || fallbackName || "Nepoznato";
+}
+
 function exportReceiptCsv() {
   const receipts = filteredReceipts({
     from: els.receiptFrom.value,
@@ -965,7 +1002,7 @@ function exportReceiptCsv() {
   const rows = receipts.map((receipt) => [
     receipt.receiptNumber,
     formatDateTime(receipt.createdAt),
-    receipt.waiterName,
+    displayNameForReceipt(receipt),
     receipt.note,
     formatPlainEuro(receipt.totalCents),
     receipt.items.map((item) => `${item.name} x${item.quantity}`).join("; "),

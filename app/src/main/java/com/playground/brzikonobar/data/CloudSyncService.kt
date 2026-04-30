@@ -250,10 +250,9 @@ class CloudSyncService(
                     "uid" to user.uid,
                     "name" to waiterName,
                     "role" to "waiter",
-                    "canUseHouseAccount" to false,
-                    "canUseMusic" to false,
                     "joinedAt" to FieldValue.serverTimestamp(),
                 ),
+                SetOptions.merge(),
             )
             .await()
 
@@ -297,6 +296,44 @@ class CloudSyncService(
             canUseHouseAccount = isAdmin || (snapshot.getBoolean("canUseHouseAccount") ?: false),
             canUseMusic = isAdmin || (snapshot.getBoolean("canUseMusic") ?: false),
         )
+    }
+
+    fun observeMemberProfile(
+        config: CloudConfig,
+        session: CloudSession,
+    ): Flow<CloudMemberProfile?> = callbackFlow {
+        if (session.cafeId.isBlank() || session.userId.isBlank()) {
+            trySend(null)
+            close()
+            return@callbackFlow
+        }
+
+        val registration = firestore(config)
+            .collection("cafes")
+            .document(session.cafeId)
+            .collection("members")
+            .document(session.userId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) {
+                    trySend(null)
+                    return@addSnapshotListener
+                }
+
+                val role = snapshot.getString("role").orEmpty().ifBlank { session.userRole }
+                val isAdmin = role == "admin"
+                trySend(
+                    CloudMemberProfile(
+                        name = snapshot.getString("name").orEmpty().ifBlank { session.userName },
+                        role = role,
+                        canUseHouseAccount = isAdmin || (snapshot.getBoolean("canUseHouseAccount") ?: false),
+                        canUseMusic = isAdmin || (snapshot.getBoolean("canUseMusic") ?: false),
+                    ),
+                )
+            }
+
+        awaitClose {
+            registration.remove()
+        }
     }
 
     suspend fun pushReceipt(

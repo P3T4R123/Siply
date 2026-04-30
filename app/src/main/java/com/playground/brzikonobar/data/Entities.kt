@@ -137,6 +137,8 @@ data class AppStateEntity(
     val cloudUserName: String = "",
     val cloudUserRole: String = "",
     val cloudInviteCode: String = "",
+    val canUseHouseAccount: Boolean = false,
+    val canUseMusic: Boolean = false,
 )
 
 data class CatalogRow(

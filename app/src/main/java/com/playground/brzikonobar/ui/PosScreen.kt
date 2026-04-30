@@ -1765,6 +1765,15 @@ private fun ReceiptTab(
         }
     }
 
+    LaunchedEffect(uiState.canUseHouseAccount, uiState.canUseMusic) {
+        if (!uiState.canUseHouseAccount) {
+            markHouseAccount = false
+        }
+        if (!uiState.canUseMusic) {
+            markMusic = false
+        }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -1829,6 +1838,8 @@ private fun ReceiptTab(
                 ReceiptFlagsCard(
                     markHouseAccount = markHouseAccount,
                     markMusic = markMusic,
+                    canUseHouseAccount = uiState.canUseHouseAccount,
+                    canUseMusic = uiState.canUseMusic,
                     onHouseAccountChange = { markHouseAccount = it },
                     onMusicChange = { markMusic = it },
                 )
@@ -1865,6 +1876,8 @@ private fun ReceiptTab(
 private fun ReceiptFlagsCard(
     markHouseAccount: Boolean,
     markMusic: Boolean,
+    canUseHouseAccount: Boolean,
+    canUseMusic: Boolean,
     onHouseAccountChange: (Boolean) -> Unit,
     onMusicChange: (Boolean) -> Unit,
 ) {
@@ -1885,13 +1898,22 @@ private fun ReceiptFlagsCard(
             ReceiptFlagRow(
                 checked = markHouseAccount,
                 label = "Na račun kuće",
+                enabled = canUseHouseAccount,
                 onCheckedChange = onHouseAccountChange,
             )
             ReceiptFlagRow(
                 checked = markMusic,
                 label = "Muzika",
+                enabled = canUseMusic,
                 onCheckedChange = onMusicChange,
             )
+            if (!canUseHouseAccount || !canUseMusic) {
+                Text(
+                    text = "Admin određuje koje oznake možeš koristiti.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -1900,10 +1922,15 @@ private fun ReceiptFlagsCard(
 private fun ReceiptFlagRow(
     checked: Boolean,
     label: String,
+    enabled: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Card(
-        onClick = { onCheckedChange(!checked) },
+        onClick = {
+            if (enabled) {
+                onCheckedChange(!checked)
+            }
+        },
         colors = CardDefaults.cardColors(
             containerColor = if (checked) {
                 MaterialTheme.colorScheme.primaryContainer
@@ -1921,12 +1948,18 @@ private fun ReceiptFlagRow(
         ) {
             Checkbox(
                 checked = checked,
+                enabled = enabled,
                 onCheckedChange = onCheckedChange,
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
             )
         }
     }

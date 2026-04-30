@@ -552,7 +552,9 @@ class PosRepository(
 
         val state = dao.getAppState() ?: return false
         val config = state.toCloudConfigOrNull() ?: return false
-        val session = state.toCloudSessionOrNull() ?: return false
+        val session = refreshCloudMemberNow(state, config, state.toCloudSessionOrNull() ?: return false)
+            ?: state.toCloudSessionOrNull()
+            ?: return false
         val cloudLines = lines.map { line ->
             CloudReceiptLine(
                 productId = line.productId,
@@ -575,6 +577,7 @@ class PosRepository(
             config = config,
             session = session,
             orderNumber = receiptNumber,
+            note = note.trim(),
             lines = cloudLines,
         )
 
@@ -610,6 +613,8 @@ class PosRepository(
                     cloudUserName = session.userName,
                     cloudUserRole = session.userRole,
                     cloudInviteCode = session.inviteCode,
+                    canUseHouseAccount = session.canUseHouseAccount,
+                    canUseMusic = session.canUseMusic,
                 ),
             )
         }
@@ -677,9 +682,44 @@ class PosRepository(
                     cloudUserName = session.userName,
                     cloudUserRole = session.userRole,
                     cloudInviteCode = session.inviteCode,
+                    canUseHouseAccount = session.canUseHouseAccount,
+                    canUseMusic = session.canUseMusic,
                 ),
             )
         }
+    }
+
+    suspend fun refreshCloudMemberNow() {
+        val state = dao.getAppState() ?: return
+        val config = state.toCloudConfigOrNull() ?: return
+        val session = state.toCloudSessionOrNull() ?: return
+        refreshCloudMemberNow(state, config, session)
+    }
+
+    private suspend fun refreshCloudMemberNow(
+        state: AppStateEntity,
+        config: CloudConfig,
+        session: CloudSession,
+    ): CloudSession? {
+        val profile = cloudSyncService.fetchMemberProfile(config, session) ?: return null
+        val refreshedSession = session.copy(
+            userName = profile.name,
+            userRole = profile.role,
+            canUseHouseAccount = profile.canUseHouseAccount,
+            canUseMusic = profile.canUseMusic,
+        )
+        database.withTransaction {
+            val current = dao.getAppState() ?: state
+            dao.upsertAppState(
+                current.copy(
+                    cloudUserName = refreshedSession.userName,
+                    cloudUserRole = refreshedSession.userRole,
+                    canUseHouseAccount = refreshedSession.canUseHouseAccount,
+                    canUseMusic = refreshedSession.canUseMusic,
+                ),
+            )
+        }
+        return refreshedSession
     }
 
     fun buildInvitePayload(state: AppStateEntity): String? {
@@ -1528,6 +1568,8 @@ class PosRepository(
             userName = cloudUserName,
             userRole = cloudUserRole,
             inviteCode = cloudInviteCode,
+            canUseHouseAccount = cloudUserRole == "admin" || canUseHouseAccount,
+            canUseMusic = cloudUserRole == "admin" || canUseMusic,
         )
     }
 
@@ -1573,6 +1615,8 @@ class PosRepository(
         .put("cloudUserName", cloudUserName)
         .put("cloudUserRole", cloudUserRole)
         .put("cloudInviteCode", cloudInviteCode)
+        .put("canUseHouseAccount", canUseHouseAccount)
+        .put("canUseMusic", canUseMusic)
 
     private fun CategoryEntity.toJson(): JSONObject = JSONObject()
         .put("id", id)
@@ -1660,6 +1704,8 @@ class PosRepository(
         cloudUserName = optString("cloudUserName"),
         cloudUserRole = optString("cloudUserRole"),
         cloudInviteCode = optString("cloudInviteCode"),
+        canUseHouseAccount = optBoolean("canUseHouseAccount", false),
+        canUseMusic = optBoolean("canUseMusic", false),
     )
 
     private fun JSONObject.toCategoryEntity(): CategoryEntity = CategoryEntity(

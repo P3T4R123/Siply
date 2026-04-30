@@ -40,6 +40,7 @@
         <button class="tab" data-tab="pos">POS</button>
         <button class="tab" data-tab="receipts">Računi</button>
         <button class="tab" data-tab="catalog">Artikli</button>
+        <button class="tab" data-tab="staff">Konobari</button>
         <button class="tab" data-tab="settings">Settings</button>
       </nav>
 
@@ -214,6 +215,19 @@
             <input id="searchInput" class="search" placeholder="Pretraži artikle ili kategorije">
           </div>
           <div id="productsTable" class="table"></div>
+        </section>
+      </section>
+
+      <section id="staffTab" class="tab-panel hidden">
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <p class="eyebrow">Tim</p>
+              <h2>Konobari i ovlasti</h2>
+            </div>
+            <p class="muted small">Promijeni ime konobara i odredi tko smije koristiti oznake za račun.</p>
+          </div>
+          <div id="staffTable" class="table staff-table"></div>
         </section>
       </section>
 

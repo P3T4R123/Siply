@@ -204,7 +204,7 @@ button:disabled {
 .tabs {
   padding: 8px;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 8px;
   position: sticky;
   top: 10px;
@@ -339,7 +339,7 @@ label {
   border-radius: 7px 24px 12px 18px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.44), transparent 36%),
-    linear-gradient(180deg, #fff5a8, #ffe987);
+    linear-gradient(180deg, var(--note-bg, #fff5a8), var(--note-bg-2, #ffe987));
   box-shadow:
     0 22px 34px rgba(87, 72, 19, 0.22),
     inset 0 -18px 28px rgba(174, 126, 24, 0.10);
@@ -367,7 +367,7 @@ label {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 12px;
-  color: #59440f;
+  color: var(--note-muted, #59440f);
   font-size: 16px;
   font-weight: 1000;
 }
@@ -392,7 +392,7 @@ label {
 
 .order-top span,
 .order-number {
-  color: #705716;
+  color: var(--note-muted, #705716);
   font-weight: 900;
 }
 
@@ -415,7 +415,7 @@ label {
   grid-template-columns: 64px 1fr;
   gap: 12px;
   align-items: start;
-  color: #221a06;
+  color: var(--note-ink, #221a06);
   font-size: clamp(22px, 2.3vw, 34px);
   line-height: 1.08;
 }
@@ -425,6 +425,20 @@ label {
 }
 
 .order-items li strong {
+  font-weight: 1000;
+}
+
+.order-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.order-tags span {
+  padding: 8px 10px;
+  border-radius: 999px;
+  color: var(--note-ink, #221a06);
+  background: rgba(255, 255, 255, 0.42);
   font-weight: 1000;
 }
 
@@ -541,7 +555,8 @@ label {
 .cart-line,
 .receipt-card,
 .product-row,
-.procurement-row {
+.procurement-row,
+.staff-row {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -649,6 +664,23 @@ label {
   grid-template-columns: 1.6fr 0.7fr 0.8fr 0.8fr;
   gap: 10px;
   align-items: center;
+}
+
+.staff-table-header,
+.staff-row {
+  display: grid;
+  grid-template-columns: 56px minmax(180px, 1.4fr) 100px 130px 100px 120px;
+  gap: 10px;
+  align-items: center;
+}
+
+.staff-color {
+  width: 38px;
+  height: 38px;
+  display: inline-block;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--note-bg), var(--note-bg-2));
+  box-shadow: inset 0 -10px 18px rgba(0, 0, 0, 0.08);
 }
 
 .procurement-row small {

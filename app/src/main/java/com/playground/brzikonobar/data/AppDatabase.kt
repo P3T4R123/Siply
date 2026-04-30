@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ReceiptItemEntity::class,
         AppStateEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -44,6 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_5_6)
                     .addMigrations(MIGRATION_6_7)
                     .addMigrations(MIGRATION_7_8)
+                    .addMigrations(MIGRATION_8_9)
                     .build()
                     .also { instance = it }
             }
@@ -186,5 +187,12 @@ private val MIGRATION_6_7 = object : Migration(6, 7) {
 private val MIGRATION_7_8 = object : Migration(7, 8) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE products ADD COLUMN imageDataUrl TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+private val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE app_state ADD COLUMN canUseHouseAccount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE app_state ADD COLUMN canUseMusic INTEGER NOT NULL DEFAULT 0")
     }
 }

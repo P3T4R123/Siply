@@ -210,6 +210,8 @@ data class PosUiState(
     val cloudCafeName: String = "",
     val cloudUserName: String = "",
     val cloudUserRole: String = "",
+    val canUseHouseAccount: Boolean = false,
+    val canUseMusic: Boolean = false,
     val waiterInvitePayload: String = "",
 )
 
@@ -403,6 +405,7 @@ class MainViewModel(
     init {
         viewModelScope.launch {
             repository.prepare()
+            refreshCloudMemberSilently()
             refreshCloudCatalogSilently()
         }
         viewModelScope.launch {
@@ -453,6 +456,14 @@ class MainViewModel(
         }
     }
 
+    private fun refreshCloudMemberSilently() {
+        viewModelScope.launch {
+            runCatching {
+                repository.refreshCloudMemberNow()
+            }
+        }
+    }
+
     fun selectCategory(categoryId: Long) {
         selectedCategoryId.value = categoryId
     }
@@ -496,7 +507,8 @@ class MainViewModel(
                 return@launch
             }
 
-            val result = repository.saveReceipt(draft, note)
+            val cleanNote = sanitizeReceiptNote(note, appState.value)
+            val result = repository.saveReceipt(draft, cleanNote)
             if (result != null) {
                 cartQuantities.value = linkedMapOf()
                 _messages.emit("Račun ${result.receiptNumber} je spremljen.")
@@ -505,7 +517,7 @@ class MainViewModel(
                         repository.syncSavedReceiptOnline(
                             receiptNumber = result.receiptNumber,
                             lines = draft,
-                            note = note,
+                            note = cleanNote,
                         )
                     }.getOrDefault(false)
                     if (!synced && appState.value.cloudCafeId.isNotBlank()) {
@@ -1288,8 +1300,29 @@ class MainViewModel(
             cloudCafeName = state.cloudCafeName,
             cloudUserName = state.cloudUserName,
             cloudUserRole = state.cloudUserRole,
+            canUseHouseAccount = state.cloudUserRole == "admin" || state.canUseHouseAccount,
+            canUseMusic = state.cloudUserRole == "admin" || state.canUseMusic,
             waiterInvitePayload = repository.buildInvitePayload(state).orEmpty(),
         )
+    }
+
+    private fun sanitizeReceiptNote(
+        note: String,
+        state: AppStateEntity,
+    ): String {
+        val isAdmin = state.cloudUserRole == "admin"
+        val canUseHouseAccount = isAdmin || state.canUseHouseAccount
+        val canUseMusic = isAdmin || state.canUseMusic
+        return note.split("•")
+            .map { item -> item.trim() }
+            .filter { item ->
+                when (item) {
+                    "Na račun kuće" -> canUseHouseAccount
+                    "Muzika" -> canUseMusic
+                    else -> item.isNotBlank()
+                }
+            }
+            .joinToString(" • ")
     }
 
     private fun buildDraftLines(): List<ReceiptDraftLine> {

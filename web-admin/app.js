@@ -10,11 +10,13 @@ const state = {
   products: [],
   receipts: [],
   orders: [],
+  members: [],
   cart: new Map(),
   activeCategory: "all",
   productUnsubscribe: null,
   receiptUnsubscribe: null,
   orderUnsubscribe: null,
+  memberUnsubscribe: null,
 };
 
 const els = {
@@ -78,6 +80,7 @@ const els = {
   newEmoji: document.querySelector("#newEmoji"),
   searchInput: document.querySelector("#searchInput"),
   productsTable: document.querySelector("#productsTable"),
+  staffTable: document.querySelector("#staffTable"),
   toggleProcurementButton: document.querySelector("#toggleProcurementButton"),
   procurementPanel: document.querySelector("#procurementPanel"),
   procurementNote: document.querySelector("#procurementNote"),
@@ -152,9 +155,11 @@ async function connect(rawPayload) {
       uid: state.user.uid,
       name: "Web Admin",
       role: "admin",
+      canUseHouseAccount: true,
+      canUseMusic: true,
       joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
       inviteCode: payload.inviteCode,
-    });
+    }, { merge: true });
 
     localStorage.setItem(STORAGE_KEY, rawPayload.trim());
     state.cafeName = cafeSnapshot.data().name || "Siply kafić";
@@ -165,6 +170,7 @@ async function connect(rawPayload) {
     subscribeProducts();
     subscribeReceipts();
     subscribeOrders();
+    subscribeMembers();
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Spajanje nije uspjelo.", true);
@@ -197,6 +203,10 @@ function receiptsCollection() {
 
 function ordersCollection() {
   return cafeDoc().collection("barOrders");
+}
+
+function membersCollection() {
+  return cafeDoc().collection("members");
 }
 
 function productRef(id) {
@@ -249,6 +259,24 @@ function subscribeOrders() {
     });
 }
 
+function subscribeMembers() {
+  if (state.memberUnsubscribe) state.memberUnsubscribe();
+
+  state.memberUnsubscribe = membersCollection()
+    .onSnapshot((snapshot) => {
+      state.members = snapshot.docs
+        .map((doc) => normalizeMember(doc))
+        .sort((a, b) => {
+          if (a.role !== b.role) return a.role === "admin" ? -1 : 1;
+          return a.name.localeCompare(b.name, "hr");
+        });
+      renderAll();
+    }, (error) => {
+      console.error(error);
+      alert("Ne mogu učitati konobare. Provjeri Firestore rules.");
+    });
+}
+
 function normalizeReceipt(doc) {
   const data = doc.data();
   const items = Array.isArray(data.items) ? data.items.map((item) => ({
@@ -287,7 +315,22 @@ function normalizeOrder(doc) {
     createdAt: Number(data.createdAt || 0),
     completed: data.completed === true,
     completedAt: Number(data.completedAt || 0),
+    note: String(data.note || ""),
     items,
+  };
+}
+
+function normalizeMember(doc) {
+  const data = doc.data();
+  const role = String(data.role || "waiter");
+  return {
+    id: doc.id,
+    uid: String(data.uid || doc.id),
+    name: String(data.name || "Bez imena"),
+    role,
+    canUseHouseAccount: role === "admin" || data.canUseHouseAccount === true,
+    canUseMusic: role === "admin" || data.canUseMusic === true,
+    joinedAt: data.joinedAt?.toMillis ? data.joinedAt.toMillis() : 0,
   };
 }
 
@@ -300,6 +343,7 @@ function renderAll() {
   renderReceipts();
   renderCatalog();
   renderProcurement();
+  renderStaff();
 }
 
 function renderOrders() {
@@ -324,7 +368,7 @@ function renderOrders() {
   }
 
   els.ordersBoard.innerHTML = visibleOrders.map((order, index) => `
-    <article class="order-note ${order.completed ? "done" : ""}" data-order-id="${order.id}" style="--tilt:${orderTilt(index)}deg">
+    <article class="order-note ${order.completed ? "done" : ""}" data-order-id="${order.id}" style="--tilt:${orderTilt(index)}deg; ${waiterStickerStyle(order.waiterId || order.waiterName)}">
       <label class="order-check">
         <input type="checkbox" ${order.completed ? "checked" : ""}>
         <span>${order.completed ? "Gotovo" : "Označi gotovo"}</span>
@@ -334,12 +378,43 @@ function renderOrders() {
         <span>${formatTime(order.createdAt)}</span>
       </div>
       <p class="order-number">${escapeHtml(order.orderNumber)}</p>
+      ${order.note ? `<div class="order-tags">${order.note.split("•").map((tag) => tag.trim()).filter(Boolean).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
       <ul class="order-items">
         ${order.items.map((item) => `
           <li><span>${item.quantity}x</span><strong>${escapeHtml(item.name)}</strong></li>
         `).join("")}
       </ul>
     </article>
+  `).join("");
+}
+
+function renderStaff() {
+  if (!els.staffTable) return;
+  if (state.members.length === 0) {
+    els.staffTable.innerHTML = `<div class="empty">Još nema spojenih konobara.</div>`;
+    return;
+  }
+
+  const header = `
+    <div class="table-header staff-table-header">
+      <span>Boja</span><span>Ime</span><span>Uloga</span><span>Na račun kuće</span><span>Muzika</span><span></span>
+    </div>`;
+
+  els.staffTable.innerHTML = header + state.members.map((member) => `
+    <div class="staff-row" data-id="${escapeAttr(member.id)}">
+      <span class="staff-color" style="${waiterStickerStyle(member.uid || member.name)}"></span>
+      <input data-field="name" value="${escapeAttr(member.name)}">
+      <strong>${member.role === "admin" ? "Admin" : "Konobar"}</strong>
+      <label class="active-cell">
+        <input data-field="house" type="checkbox" ${member.canUseHouseAccount ? "checked" : ""} ${member.role === "admin" ? "disabled" : ""}>
+      </label>
+      <label class="active-cell">
+        <input data-field="music" type="checkbox" ${member.canUseMusic ? "checked" : ""} ${member.role === "admin" ? "disabled" : ""}>
+      </label>
+      <div class="row-actions">
+        <button class="primary" data-action="save-staff">Spremi</button>
+      </div>
+    </div>
   `).join("");
 }
 
@@ -722,6 +797,7 @@ async function saveReceipt() {
     role: "admin",
     createdAt: now,
     completed: false,
+    note,
     items,
   });
   lines.forEach((line) => {
@@ -743,6 +819,28 @@ async function saveReceipt() {
   } finally {
     els.saveReceiptButton.disabled = false;
   }
+}
+
+async function saveStaffMember(row) {
+  const id = row.dataset.id;
+  const member = state.members.find((item) => item.id === id);
+  if (!member) return;
+
+  const name = readField(row, "name").trim();
+  if (!name) {
+    alert("Ime konobara je obavezno.");
+    return;
+  }
+
+  const isAdmin = member.role === "admin";
+  await membersCollection().doc(id).set({
+    uid: member.uid || id,
+    name,
+    role: member.role,
+    canUseHouseAccount: isAdmin || row.querySelector('[data-field="house"]').checked,
+    canUseMusic: isAdmin || row.querySelector('[data-field="music"]').checked,
+    updatedAt: Date.now(),
+  }, { merge: true });
 }
 
 async function saveProcurement() {
@@ -1153,6 +1251,19 @@ function orderTilt(index) {
   return [-1.2, 0.7, -0.4, 1.1, -0.8, 0.4][index % 6];
 }
 
+function waiterStickerStyle(value) {
+  const hue = stableHue(value || "waiter");
+  return `--note-hue:${hue}; --note-bg:hsl(${hue} 92% 82%); --note-bg-2:hsl(${hue} 88% 72%); --note-ink:hsl(${hue} 46% 16%); --note-muted:hsl(${hue} 34% 30%);`;
+}
+
+function stableHue(value) {
+  let hash = 0;
+  String(value).split("").forEach((char) => {
+    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
+  });
+  return Math.abs(hash) % 360;
+}
+
 function compactDateTime(millis) {
   const date = new Date(millis);
   const pad = (value) => value.toString().padStart(2, "0");
@@ -1204,6 +1315,7 @@ els.logoutButton.addEventListener("click", async () => {
   if (state.productUnsubscribe) state.productUnsubscribe();
   if (state.receiptUnsubscribe) state.receiptUnsubscribe();
   if (state.orderUnsubscribe) state.orderUnsubscribe();
+  if (state.memberUnsubscribe) state.memberUnsubscribe();
   if (state.auth) await state.auth.signOut();
   showLogin();
 });
@@ -1272,6 +1384,18 @@ els.productsTable.addEventListener("click", (event) => {
   task.catch((error) => {
     console.error(error);
     alert(error.message || "Akcija nije uspjela.");
+  }).finally(() => {
+    button.disabled = false;
+  });
+});
+els.staffTable.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action='save-staff']");
+  if (!button) return;
+  const row = button.closest(".staff-row");
+  button.disabled = true;
+  saveStaffMember(row).catch((error) => {
+    console.error(error);
+    alert(error.message || "Spremanje konobara nije uspjelo.");
   }).finally(() => {
     button.disabled = false;
   });

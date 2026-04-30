@@ -32,6 +32,15 @@ data class CloudSession(
     val userName: String,
     val userRole: String,
     val inviteCode: String,
+    val canUseHouseAccount: Boolean = false,
+    val canUseMusic: Boolean = false,
+)
+
+data class CloudMemberProfile(
+    val name: String,
+    val role: String,
+    val canUseHouseAccount: Boolean,
+    val canUseMusic: Boolean,
 )
 
 data class CloudInvitePayload(
@@ -151,6 +160,8 @@ class CloudSyncService(
                     "uid" to user.uid,
                     "name" to adminName,
                     "role" to "admin",
+                    "canUseHouseAccount" to true,
+                    "canUseMusic" to true,
                     "joinedAt" to now,
                 ),
             )
@@ -175,6 +186,8 @@ class CloudSyncService(
             userName = adminName,
             userRole = "admin",
             inviteCode = inviteCode,
+            canUseHouseAccount = true,
+            canUseMusic = true,
         )
     }
 
@@ -237,6 +250,8 @@ class CloudSyncService(
                     "uid" to user.uid,
                     "name" to waiterName,
                     "role" to "waiter",
+                    "canUseHouseAccount" to false,
+                    "canUseMusic" to false,
                     "joinedAt" to FieldValue.serverTimestamp(),
                 ),
             )
@@ -249,6 +264,38 @@ class CloudSyncService(
             userName = waiterName,
             userRole = "waiter",
             inviteCode = payload.inviteCode,
+            canUseHouseAccount = false,
+            canUseMusic = false,
+        )
+    }
+
+    suspend fun fetchMemberProfile(
+        config: CloudConfig,
+        session: CloudSession,
+    ): CloudMemberProfile? {
+        if (session.cafeId.isBlank() || session.userId.isBlank()) {
+            return null
+        }
+
+        val snapshot = firestore(config)
+            .collection("cafes")
+            .document(session.cafeId)
+            .collection("members")
+            .document(session.userId)
+            .get()
+            .await()
+
+        if (!snapshot.exists()) {
+            return null
+        }
+
+        val role = snapshot.getString("role").orEmpty().ifBlank { session.userRole }
+        val isAdmin = role == "admin"
+        return CloudMemberProfile(
+            name = snapshot.getString("name").orEmpty().ifBlank { session.userName },
+            role = role,
+            canUseHouseAccount = isAdmin || (snapshot.getBoolean("canUseHouseAccount") ?: false),
+            canUseMusic = isAdmin || (snapshot.getBoolean("canUseMusic") ?: false),
         )
     }
 
@@ -277,6 +324,8 @@ class CloudSyncService(
                     "createdAt" to System.currentTimeMillis(),
                     "totalCents" to totalCents,
                     "note" to note,
+                    "canUseHouseAccount" to session.canUseHouseAccount,
+                    "canUseMusic" to session.canUseMusic,
                     "items" to lines.map { line ->
                         mapOf(
                             "productId" to line.productId,
@@ -294,6 +343,7 @@ class CloudSyncService(
         config: CloudConfig,
         session: CloudSession,
         orderNumber: String,
+        note: String,
         lines: List<CloudReceiptLine>,
     ) {
         if (session.cafeId.isBlank() || session.userId.isBlank() || lines.isEmpty()) {
@@ -312,6 +362,7 @@ class CloudSyncService(
                     "role" to session.userRole,
                     "createdAt" to System.currentTimeMillis(),
                     "completed" to false,
+                    "note" to note,
                     "items" to lines.map { line ->
                         mapOf(
                             "productId" to line.productId,

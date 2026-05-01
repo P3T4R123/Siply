@@ -67,30 +67,47 @@
               <button id="todayDashboardButton" class="secondary">Danas</button>
             </div>
           </div>
+          <div class="dashboard-toggle-row" aria-label="Oznake koje ulaze u statistiku">
+            <span>U statistiku uključi:</span>
+            <label class="toggle-pill"><input id="dashboardIncludeHouse" type="checkbox" checked> Na račun kuće</label>
+            <label class="toggle-pill"><input id="dashboardIncludeMusic" type="checkbox" checked> Muzika</label>
+          </div>
           <section class="stats-grid">
-            <article class="stat"><span>Promet</span><strong id="dashRevenue">0,00 EUR</strong></article>
+            <article class="stat"><span>Za naplatu</span><strong id="dashRevenue">0,00 EUR</strong></article>
+            <article class="stat"><span>Otkucano ukupno</span><strong id="dashGross">0,00 EUR</strong></article>
+            <article class="stat"><span>Odbijeno oznake</span><strong id="dashExcluded">0,00 EUR</strong></article>
             <article class="stat"><span>Računa</span><strong id="dashReceipts">0</strong></article>
             <article class="stat"><span>Prosjek računa</span><strong id="dashAverage">0,00 EUR</strong></article>
             <article class="stat"><span>Na račun kuće</span><strong id="dashHouse">0,00 EUR</strong></article>
+            <article class="stat"><span>Muzika</span><strong id="dashMusic">0,00 EUR</strong></article>
           </section>
+        </section>
+        <section class="panel">
+          <div class="section-header compact">
+            <div>
+              <h2>Kontrola po konobarima</h2>
+              <p class="status">Otkucano minus isključene oznake = iznos koji treba predati.</p>
+            </div>
+          </div>
+          <div id="waiterSummary" class="waiter-summary"></div>
         </section>
         <section class="two-column">
           <article class="panel">
-            <div class="section-header compact"><h2>Po konobarima</h2></div>
+            <div class="section-header compact"><h2>Po konobarima za naplatu</h2></div>
             <div id="waiterChart" class="bar-list"></div>
           </article>
           <article class="panel">
-            <div class="section-header compact"><h2>Po kategorijama</h2></div>
+            <div class="section-header compact"><h2>Po kategorijama za naplatu</h2></div>
             <div id="categoryChart" class="bar-list"></div>
           </article>
         </section>
         <section class="two-column">
           <article class="panel">
-            <div class="section-header compact"><h2>Top artikli</h2></div>
+            <div class="section-header compact"><h2>Top artikli za naplatu</h2></div>
             <div id="productChart" class="bar-list"></div>
           </article>
           <article class="panel">
-            <div class="section-header compact"><h2>Promet po satu</h2></div>
+            <div class="section-header compact"><h2>Promet po satu za naplatu</h2></div>
             <div id="hourChart" class="bar-list"></div>
           </article>
         </section>

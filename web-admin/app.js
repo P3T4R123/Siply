@@ -40,11 +40,17 @@ const els = {
   dashboardFrom: document.querySelector("#dashboardFrom"),
   dashboardTo: document.querySelector("#dashboardTo"),
   dashboardWaiter: document.querySelector("#dashboardWaiter"),
+  dashboardIncludeHouse: document.querySelector("#dashboardIncludeHouse"),
+  dashboardIncludeMusic: document.querySelector("#dashboardIncludeMusic"),
   todayDashboardButton: document.querySelector("#todayDashboardButton"),
   dashRevenue: document.querySelector("#dashRevenue"),
+  dashGross: document.querySelector("#dashGross"),
+  dashExcluded: document.querySelector("#dashExcluded"),
   dashReceipts: document.querySelector("#dashReceipts"),
   dashAverage: document.querySelector("#dashAverage"),
   dashHouse: document.querySelector("#dashHouse"),
+  dashMusic: document.querySelector("#dashMusic"),
+  waiterSummary: document.querySelector("#waiterSummary"),
   waiterChart: document.querySelector("#waiterChart"),
   categoryChart: document.querySelector("#categoryChart"),
   productChart: document.querySelector("#productChart"),
@@ -597,18 +603,83 @@ function renderDashboard() {
     waiter: els.dashboardWaiter.value,
     note: "all",
   });
+  const includeHouse = els.dashboardIncludeHouse ? els.dashboardIncludeHouse.checked : true;
+  const includeMusic = els.dashboardIncludeMusic ? els.dashboardIncludeMusic.checked : true;
+  const billableReceipts = receipts.filter((receipt) => isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic));
+  const excludedReceipts = receipts.filter((receipt) => !isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic));
 
-  const total = sum(receipts.map((receipt) => receipt.totalCents));
+  const grossTotal = sum(receipts.map((receipt) => receipt.totalCents));
+  const total = sum(billableReceipts.map((receipt) => receipt.totalCents));
+  const excludedTotal = sum(excludedReceipts.map((receipt) => receipt.totalCents));
   const houseTotal = sum(receipts.filter((receipt) => receipt.note.includes("Na račun kuće")).map((receipt) => receipt.totalCents));
+  const musicTotal = sum(receipts.filter((receipt) => receipt.note.includes("Muzika")).map((receipt) => receipt.totalCents));
   els.dashRevenue.textContent = formatEuro(total);
-  els.dashReceipts.textContent = receipts.length.toString();
-  els.dashAverage.textContent = formatEuro(receipts.length ? Math.round(total / receipts.length) : 0);
+  if (els.dashGross) els.dashGross.textContent = formatEuro(grossTotal);
+  if (els.dashExcluded) els.dashExcluded.textContent = formatEuro(excludedTotal);
+  els.dashReceipts.textContent = `${billableReceipts.length} / ${receipts.length}`;
+  els.dashAverage.textContent = formatEuro(billableReceipts.length ? Math.round(total / billableReceipts.length) : 0);
   els.dashHouse.textContent = formatEuro(houseTotal);
+  if (els.dashMusic) els.dashMusic.textContent = formatEuro(musicTotal);
 
-  renderBars(els.waiterChart, groupReceiptTotals(receipts, displayNameForReceipt), formatEuro);
-  renderBars(els.categoryChart, groupItemTotals(receipts, categoryForItem), formatEuro);
-  renderBars(els.productChart, groupItemTotals(receipts, (item) => item.name || "Artikl"), formatEuro, 10);
-  renderBars(els.hourChart, groupReceiptTotals(receipts, (receipt) => `${new Date(receipt.createdAt).getHours().toString().padStart(2, "0")}:00`), formatEuro);
+  if (els.waiterSummary) renderWaiterSummary(groupWaiterControlTotals(receipts, includeHouse, includeMusic));
+  renderBars(els.waiterChart, groupReceiptTotals(billableReceipts, displayNameForReceipt), formatEuro);
+  renderBars(els.categoryChart, groupItemTotals(billableReceipts, categoryForItem), formatEuro);
+  renderBars(els.productChart, groupItemTotals(billableReceipts, (item) => item.name || "Artikl"), formatEuro, 10);
+  renderBars(els.hourChart, groupReceiptTotals(billableReceipts, (receipt) => `${new Date(receipt.createdAt).getHours().toString().padStart(2, "0")}:00`), formatEuro);
+}
+
+function isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic) {
+  if (!includeHouse && receipt.note.includes("Na račun kuće")) return false;
+  if (!includeMusic && receipt.note.includes("Muzika")) return false;
+  return true;
+}
+
+function groupWaiterControlTotals(receipts, includeHouse, includeMusic) {
+  const grouped = new Map();
+  receipts.forEach((receipt) => {
+    const label = displayNameForReceipt(receipt);
+    if (!grouped.has(label)) {
+      grouped.set(label, { label, gross: 0, excluded: 0, payable: 0, count: 0, payableCount: 0 });
+    }
+    const row = grouped.get(label);
+    const total = Number(receipt.totalCents || 0);
+    const included = isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic);
+    row.gross += total;
+    row.count += 1;
+    if (included) {
+      row.payable += total;
+      row.payableCount += 1;
+    } else {
+      row.excluded += total;
+    }
+  });
+  return Array.from(grouped.values())
+    .sort((a, b) => b.payable - a.payable || b.gross - a.gross || a.label.localeCompare(b.label, "hr"));
+}
+
+function renderWaiterSummary(rows) {
+  if (rows.length === 0) {
+    els.waiterSummary.innerHTML = `<div class="empty">Nema podataka za odabrani period.</div>`;
+    return;
+  }
+  els.waiterSummary.innerHTML = `
+    <div class="waiter-summary-row waiter-summary-head">
+      <span>Konobar</span>
+      <span>Otkucano</span>
+      <span>Odbijeno</span>
+      <span>Za naplatu</span>
+      <span>Računi</span>
+    </div>
+    ${rows.map((row) => `
+      <div class="waiter-summary-row">
+        <strong>${escapeHtml(row.label)}</strong>
+        <span>${formatEuro(row.gross)}</span>
+        <span>${formatEuro(row.excluded)}</span>
+        <strong>${formatEuro(row.payable)}</strong>
+        <span>${row.payableCount} / ${row.count}</span>
+      </div>
+    `).join("")}
+  `;
 }
 
 function renderBars(container, rows, formatter, limit = 12) {
@@ -1620,7 +1691,9 @@ els.todayDashboardButton.addEventListener("click", () => {
   els.dashboardTo.value = today;
   renderDashboard();
 });
-[els.dashboardFrom, els.dashboardTo, els.dashboardWaiter].forEach((input) => input.addEventListener("input", renderDashboard));
+[els.dashboardFrom, els.dashboardTo, els.dashboardWaiter, els.dashboardIncludeHouse, els.dashboardIncludeMusic]
+  .filter(Boolean)
+  .forEach((input) => input.addEventListener("input", renderDashboard));
 [els.receiptFrom, els.receiptTo, els.receiptWaiter, els.receiptNoteFilter].forEach((input) => input.addEventListener("input", renderReceipts));
 els.receiptsList.addEventListener("click", (event) => {
   const button = event.target.closest("[data-action]");

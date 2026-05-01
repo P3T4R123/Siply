@@ -243,18 +243,33 @@ class CloudSyncService(
             error("Kafić nije pronađen.")
         }
 
-        cafeRef.collection("members")
-            .document(user.uid)
-            .set(
-                mapOf(
-                    "uid" to user.uid,
-                    "name" to waiterName,
-                    "role" to "waiter",
-                    "joinedAt" to FieldValue.serverTimestamp(),
-                ),
-                SetOptions.merge(),
+        val memberRef = cafeRef.collection("members").document(user.uid)
+        val existingMember = memberRef.get().await()
+        if (existingMember.exists()) {
+            val existingRole = existingMember.getString("role").orEmpty().ifBlank { "waiter" }
+            val isAdmin = existingRole == "admin"
+            return CloudSession(
+                cafeId = payload.cafeId,
+                cafeName = cafeName,
+                userId = user.uid,
+                userName = existingMember.getString("name").orEmpty().ifBlank { waiterName },
+                userRole = existingRole,
+                inviteCode = payload.inviteCode,
+                canUseHouseAccount = isAdmin || (existingMember.getBoolean("canUseHouseAccount") ?: false),
+                canUseMusic = isAdmin || (existingMember.getBoolean("canUseMusic") ?: false),
             )
-            .await()
+        }
+
+        memberRef.set(
+            mapOf(
+                "uid" to user.uid,
+                "name" to waiterName,
+                "role" to "waiter",
+                "canUseHouseAccount" to false,
+                "canUseMusic" to false,
+                "joinedAt" to FieldValue.serverTimestamp(),
+            ),
+        ).await()
 
         return CloudSession(
             cafeId = payload.cafeId,

@@ -681,11 +681,25 @@ class CloudSyncService(
             ?.getOrNull(1)
 
         if (inviteParam.isNullOrBlank()) {
-            return trimmed
+            return manualInviteJsonOrNull(trimmed) ?: trimmed
         }
 
         val decoded = Base64.getUrlDecoder().decode(inviteParam)
         return decoded.toString(Charsets.UTF_8)
+    }
+
+    private fun manualInviteJsonOrNull(value: String): String? {
+        val parts = value.split("#", "|", ";", limit = 2)
+            .map { part -> part.trim() }
+        if (parts.size != 2 || parts.any { it.isBlank() }) {
+            return null
+        }
+
+        return JSONObject()
+            .put("cafeId", parts[0])
+            .put("inviteCode", parts[1])
+            .put("role", "waiter")
+            .toString()
     }
 
     fun buildQrMatrix(

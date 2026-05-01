@@ -934,6 +934,21 @@ private fun SettingsTab(
                                         .height(260.dp),
                                 )
                             }
+                            if (uiState.waiterManualInviteCode.isNotBlank()) {
+                                Text(
+                                    text = "Ako QR ne radi, na konobarskom mobitelu u polje QR payload upiši ovaj ručni kod.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                OutlinedTextField(
+                                    value = uiState.waiterManualInviteCode,
+                                    onValueChange = {},
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Ručni kod za Android") },
+                                    singleLine = true,
+                                    readOnly = true,
+                                )
+                            }
                             FilledTonalButton(
                                 enabled = !onlineActionLoading,
                                 onClick = {
@@ -1134,7 +1149,8 @@ private fun SettingsTab(
                                 value = invitePayloadInput,
                                 onValueChange = { invitePayloadInput = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("QR payload") },
+                                label = { Text("QR payload ili ručni kod") },
+                                supportingText = { Text("Možeš skenirati QR ili upisati ručni kod koji admin vidi ispod QR-a.") },
                                 minLines = 3,
                             )
                             FilledTonalButton(

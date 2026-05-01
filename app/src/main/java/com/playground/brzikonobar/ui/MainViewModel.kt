@@ -213,6 +213,7 @@ data class PosUiState(
     val canUseHouseAccount: Boolean = false,
     val canUseMusic: Boolean = false,
     val waiterInvitePayload: String = "",
+    val waiterManualInviteCode: String = "",
 )
 
 private data class PosCoreInputs(
@@ -1314,6 +1315,11 @@ class MainViewModel(
             canUseHouseAccount = state.cloudUserRole == "admin" || state.canUseHouseAccount,
             canUseMusic = state.cloudUserRole == "admin" || state.canUseMusic,
             waiterInvitePayload = repository.buildInvitePayload(state).orEmpty(),
+            waiterManualInviteCode = if (state.cloudCafeId.isNotBlank() && state.cloudInviteCode.isNotBlank()) {
+                "${state.cloudCafeId}#${state.cloudInviteCode}"
+            } else {
+                ""
+            },
         )
     }
 

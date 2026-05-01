@@ -693,7 +693,7 @@ function setCheckboxPermission(input, allowed) {
   input.disabled = !allowed;
   if (!allowed) input.checked = false;
   const row = input.closest(".checkbox-row");
-  if (row) row.classList.toggle("disabled", !allowed);
+  if (row) row.classList.toggle("hidden", !allowed);
 }
 
 function renderReceipts() {

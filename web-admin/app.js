@@ -491,13 +491,12 @@ function renderOrders() {
       </label>
       <div class="order-top">
         <strong>${escapeHtml(displayNameForOrder(order))}</strong>
-        <span>${formatTime(order.createdAt)}</span>
+        <div class="order-head-total">
+          <strong>${formatEuro(order.totalCents)}</strong>
+          <span>${formatTime(order.createdAt)}</span>
+        </div>
       </div>
       <p class="order-number">${escapeHtml(order.orderNumber)}</p>
-      <div class="order-total">
-        <span>Ukupno</span>
-        <strong>${formatEuro(order.totalCents)}</strong>
-      </div>
       ${order.note ? `<div class="order-tags">${order.note.split("•").map((tag) => tag.trim()).filter(Boolean).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
       <ul class="order-items">
         ${order.items.map((item) => `

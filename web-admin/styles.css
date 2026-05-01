@@ -749,7 +749,7 @@ body.waiter-mode .topbar {
 
 .receipt-edit-item {
   display: grid !important;
-  grid-template-columns: minmax(160px, 1fr) 80px 130px;
+  grid-template-columns: minmax(160px, 1fr) 80px 130px 90px;
   gap: 8px;
 }
 
@@ -974,6 +974,10 @@ body.waiter-mode .topbar {
   .cart-line {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .receipt-edit-item {
+    grid-template-columns: 1fr;
   }
 
   button,

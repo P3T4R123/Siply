@@ -803,10 +803,11 @@ function renderReceipts() {
       <label class="receipt-note-edit">Oznaka / napomena<input data-field="note" value="${escapeAttr(receipt.note || "")}" placeholder="Na račun kuće • Muzika"></label>
       <div class="receipt-items receipt-edit-items">
         ${receipt.items.map((item) => `
-          <div class="receipt-edit-item">
+          <div class="receipt-edit-item" data-product-id="${escapeAttr(item.productId || "")}" data-cloud-product-id="${escapeAttr(item.cloudProductId || "")}">
             <input data-field="itemName" value="${escapeAttr(item.name || "")}" placeholder="Artikl">
             <input data-field="itemQty" inputmode="numeric" value="${Number(item.quantity || 0)}" aria-label="Količina">
             <input data-field="itemTotal" inputmode="decimal" value="${formatPriceInput(item.lineTotalCents)}" aria-label="Ukupno stavke">
+            <button class="danger small-btn" data-action="delete-receipt-item" type="button">Obriši</button>
           </div>
         `).join("")}
       </div>
@@ -1072,11 +1073,10 @@ async function saveExistingReceipt(card) {
   }
 
   const items = Array.from(card.querySelectorAll(".receipt-edit-item"))
-    .map((row, index) => {
-      const original = receipt.items[index] || {};
+    .map((row) => {
       return {
-        productId: original.productId ?? null,
-        cloudProductId: original.cloudProductId || "",
+        productId: row.dataset.productId || null,
+        cloudProductId: row.dataset.cloudProductId || "",
         name: readField(row, "itemName").trim(),
         quantity: parseStock(readField(row, "itemQty")),
         lineTotalCents: parseEuroCents(readField(row, "itemTotal")),
@@ -1113,6 +1113,36 @@ async function deleteReceipt(card) {
 
   await receiptRef(id).delete();
   await deleteMatchingOrders(receipt.receiptNumber || receipt.id);
+}
+
+function removeReceiptItem(button) {
+  const row = button.closest(".receipt-edit-item");
+  const card = button.closest(".receipt-card");
+  if (!row || !card) return;
+  const rows = Array.from(card.querySelectorAll(".receipt-edit-item"));
+  if (rows.length <= 1) {
+    alert("Račun mora imati barem jednu stavku. Ako želiš ukloniti sve, obriši cijeli račun.");
+    return;
+  }
+
+  const itemName = readField(row, "itemName").trim() || "ovu stavku";
+  if (!confirm(`Obrisati stavku "${itemName}" iz računa? Nakon toga klikni Spremi račun.`)) return;
+  row.remove();
+  updateReceiptTotalFromItems(card);
+}
+
+function updateReceiptTotalFromItems(card) {
+  const totalInput = card.querySelector('[data-field="total"]');
+  if (!totalInput) return;
+  const total = Array.from(card.querySelectorAll(".receipt-edit-item"))
+    .reduce((value, row) => {
+      try {
+        return value + parseEuroCents(readField(row, "itemTotal"));
+      } catch {
+        return value;
+      }
+    }, 0);
+  totalInput.value = formatPriceInput(total);
 }
 
 async function updateMatchingOrders(orderNumber, payload) {
@@ -1700,6 +1730,10 @@ els.receiptsList.addEventListener("click", (event) => {
   if (!button) return;
   const card = button.closest(".receipt-card");
   if (!card) return;
+  if (button.dataset.action === "delete-receipt-item") {
+    removeReceiptItem(button);
+    return;
+  }
   button.disabled = true;
   const task = button.dataset.action === "delete-receipt"
     ? deleteReceipt(card)

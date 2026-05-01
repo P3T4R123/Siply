@@ -1477,6 +1477,14 @@ els.forgetWebCodeButton.addEventListener("click", () => {
   alert("Web admin kod je obrisan iz browsera.");
 });
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch((error) => {
+      console.warn("Siply PWA service worker nije registriran.", error);
+    });
+  });
+}
+
 const savedPayload = localStorage.getItem(STORAGE_KEY);
 if (savedPayload) {
   els.invitePayload.value = savedPayload;

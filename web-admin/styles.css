@@ -408,6 +408,29 @@ label {
   text-transform: uppercase;
 }
 
+.order-total {
+  padding: 12px 14px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--note-ink, #221a06);
+  background: rgba(255, 255, 255, 0.48);
+  border-radius: 16px;
+}
+
+.order-total span {
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.order-total strong {
+  font-size: clamp(26px, 2.7vw, 42px);
+  font-weight: 1000;
+}
+
 .order-items {
   margin: 0;
   padding: 0;

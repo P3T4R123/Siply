@@ -416,7 +416,9 @@ function normalizeOrder(doc) {
   const items = Array.isArray(data.items) ? data.items.map((item) => ({
     name: String(item.name || ""),
     quantity: Number(item.quantity || 0),
+    lineTotalCents: Number(item.lineTotalCents || 0),
   })) : [];
+  const calculatedTotal = sum(items.map((item) => item.lineTotalCents));
 
   return {
     id: doc.id,
@@ -426,6 +428,7 @@ function normalizeOrder(doc) {
     createdAt: Number(data.createdAt || 0),
     completed: data.completed === true,
     completedAt: Number(data.completedAt || 0),
+    totalCents: Number(data.totalCents || calculatedTotal),
     note: String(data.note || ""),
     items,
   };
@@ -491,6 +494,10 @@ function renderOrders() {
         <span>${formatTime(order.createdAt)}</span>
       </div>
       <p class="order-number">${escapeHtml(order.orderNumber)}</p>
+      <div class="order-total">
+        <span>Ukupno</span>
+        <strong>${formatEuro(order.totalCents)}</strong>
+      </div>
       ${order.note ? `<div class="order-tags">${order.note.split("•").map((tag) => tag.trim()).filter(Boolean).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>` : ""}
       <ul class="order-items">
         ${order.items.map((item) => `
@@ -946,6 +953,7 @@ async function saveReceipt() {
     role,
     createdAt: now,
     completed: false,
+    totalCents,
     note,
     items,
   });

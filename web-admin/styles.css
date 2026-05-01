@@ -611,6 +611,20 @@ label {
   width: auto;
 }
 
+.checkbox-row.disabled {
+  opacity: 0.48;
+}
+
+body.waiter-mode .tabs {
+  display: none;
+}
+
+body.waiter-mode .topbar {
+  position: sticky;
+  top: env(safe-area-inset-top);
+  z-index: 6;
+}
+
 .receipt-total {
   padding: 16px 0;
   margin-top: 12px;

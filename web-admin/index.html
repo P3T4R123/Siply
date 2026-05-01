@@ -17,10 +17,13 @@
     <section id="loginPanel" class="panel login-panel">
       <div>
         <p class="eyebrow">Siply</p>
-        <h1>Web admin</h1>
-        <p class="muted">Zalijepi web admin kod iz mobilne aplikacije i upravljaj kafićem s kompjutera.</p>
+        <h1>Web aplikacija</h1>
+        <p class="muted">Zalijepi web admin kod za vlasnika ili waiter QR/kod za konobara. Ako si konobar, vidiš samo POS.</p>
       </div>
-      <textarea id="invitePayload" rows="7" placeholder="Zalijepi web admin kod ovdje"></textarea>
+      <label>Ime konobara
+        <input id="waiterNameInput" placeholder="Npr. Marko">
+      </label>
+      <textarea id="invitePayload" rows="7" placeholder="Zalijepi kod ovdje ili otvori waiter QR link"></textarea>
       <div class="actions">
         <button id="connectButton" class="primary">Spoji se</button>
         <button id="clearSessionButton" class="secondary">Očisti spremljeno</button>

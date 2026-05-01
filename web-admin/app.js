@@ -1,4 +1,5 @@
 const STORAGE_KEY = "siply.webAdmin.payload";
+const WAITER_NAME_KEY = "siply.web.waiterName";
 
 const state = {
   app: null,
@@ -6,6 +7,8 @@ const state = {
   auth: null,
   user: null,
   payload: null,
+  userRole: "",
+  currentMember: null,
   cafeName: "",
   products: [],
   receipts: [],
@@ -17,12 +20,14 @@ const state = {
   receiptUnsubscribe: null,
   orderUnsubscribe: null,
   memberUnsubscribe: null,
+  currentMemberUnsubscribe: null,
 };
 
 const els = {
   loginPanel: document.querySelector("#loginPanel"),
   adminPanel: document.querySelector("#adminPanel"),
   invitePayload: document.querySelector("#invitePayload"),
+  waiterNameInput: document.querySelector("#waiterNameInput"),
   connectButton: document.querySelector("#connectButton"),
   clearSessionButton: document.querySelector("#clearSessionButton"),
   loginStatus: document.querySelector("#loginStatus"),
@@ -101,14 +106,34 @@ function setStatus(message, isError = false) {
 }
 
 function parsePayload(raw) {
-  const payload = JSON.parse(raw.trim());
+  const payload = JSON.parse(payloadJsonFromInput(raw));
   if (!payload.apiKey || !payload.projectId || !payload.cafeId || !payload.inviteCode) {
     throw new Error("Kod nema sve potrebne Firebase podatke.");
   }
-  if ((payload.role || "waiter") !== "admin") {
-    throw new Error("Ovaj kod nije web admin kod.");
-  }
+  payload.role = (payload.role || "waiter") === "admin" ? "admin" : "waiter";
   return payload;
+}
+
+function payloadJsonFromInput(raw) {
+  const value = raw.trim();
+  if (!value) throw new Error("Zalijepi kod ili otvori waiter QR link.");
+
+  try {
+    const url = new URL(value);
+    const encoded = url.searchParams.get("invite") || url.searchParams.get("payload");
+    if (encoded) return decodeBase64Url(encoded);
+  } catch (_) {
+    // Not a URL, so treat it as the original JSON payload.
+  }
+
+  return value;
+}
+
+function decodeBase64Url(value) {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(normalized);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 function firebaseConfig(payload) {
@@ -130,20 +155,24 @@ function initFirebase(payload) {
 
 async function connect(rawPayload) {
   els.connectButton.disabled = true;
-  setStatus("Spajam web admin...");
+  setStatus("Spajam Siply web...");
 
   try {
     const payload = parsePayload(rawPayload);
+    const role = payload.role;
     initFirebase(payload);
 
     const authResult = await state.auth.signInAnonymously();
     state.user = authResult.user;
     state.payload = payload;
+    state.userRole = role;
 
     const cafeRef = cafeDoc();
     const inviteDoc = await cafeRef.collection("invites").doc(payload.inviteCode).get();
-    if (!inviteDoc.exists || inviteDoc.data().active !== true || inviteDoc.data().role !== "admin") {
-      throw new Error("Web admin kod nije valjan ili je istekao.");
+    if (!inviteDoc.exists || inviteDoc.data().active !== true || inviteDoc.data().role !== role) {
+      throw new Error(role === "admin"
+        ? "Web admin kod nije valjan ili je istekao."
+        : "Waiter QR/kod nije valjan ili je istekao.");
     }
 
     const cafeSnapshot = await cafeRef.get();
@@ -153,28 +182,66 @@ async function connect(rawPayload) {
 
     const webMemberRef = cafeRef.collection("members").doc(state.user.uid);
     const webMemberSnapshot = await webMemberRef.get();
-    await webMemberRef.set({
-      uid: state.user.uid,
-      name: webMemberSnapshot.exists ? (webMemberSnapshot.data().name || "Web Admin") : "Web Admin",
-      role: "admin",
-      canUseHouseAccount: true,
-      canUseMusic: true,
-      joinedAt: webMemberSnapshot.exists
-        ? (webMemberSnapshot.data().joinedAt || firebase.firestore.FieldValue.serverTimestamp())
-        : firebase.firestore.FieldValue.serverTimestamp(),
-      inviteCode: payload.inviteCode,
-    }, { merge: true });
+    const existingMember = webMemberSnapshot.exists ? webMemberSnapshot.data() : null;
+    if (existingMember?.role && existingMember.role !== role) {
+      throw new Error("Ovaj browser je već spojen s drugom ulogom. Klikni Odjava ili Očisti spremljeno pa pokušaj ponovno.");
+    }
+    const typedName = els.waiterNameInput.value.trim();
+    const memberName = role === "admin"
+      ? (existingMember?.name || "Web Admin")
+      : (existingMember?.name || typedName);
+
+    if (role === "waiter" && !memberName) {
+      throw new Error("Upiši ime konobara prije spajanja.");
+    }
+
+    if (!webMemberSnapshot.exists || role === "admin") {
+      await webMemberRef.set({
+        uid: state.user.uid,
+        name: memberName,
+        role,
+        canUseHouseAccount: role === "admin" || existingMember?.canUseHouseAccount === true,
+        canUseMusic: role === "admin" || existingMember?.canUseMusic === true,
+        joinedAt: existingMember?.joinedAt || firebase.firestore.FieldValue.serverTimestamp(),
+        inviteCode: payload.inviteCode,
+      }, { merge: true });
+    }
+
+    state.currentMember = normalizeMember({
+      id: state.user.uid,
+      data: () => ({
+        uid: state.user.uid,
+        name: memberName,
+        role,
+        canUseHouseAccount: role === "admin" || existingMember?.canUseHouseAccount === true,
+        canUseMusic: role === "admin" || existingMember?.canUseMusic === true,
+        joinedAt: existingMember?.joinedAt,
+      }),
+    });
 
     localStorage.setItem(STORAGE_KEY, rawPayload.trim());
+    if (typedName) localStorage.setItem(WAITER_NAME_KEY, typedName);
     state.cafeName = cafeSnapshot.data().name || "Siply kafić";
     els.cafeName.textContent = state.cafeName;
     els.settingsInfo.textContent = `Spojeno na ${state.cafeName}. Web korisnik: ${state.user.uid}`;
     setDefaultDates();
     showAdmin();
+    applyRoleUi();
     subscribeProducts();
-    subscribeReceipts();
-    subscribeOrders();
-    subscribeMembers();
+    subscribeCurrentMember();
+    if (role === "admin") {
+      subscribeReceipts();
+      subscribeOrders();
+      subscribeMembers();
+    } else {
+      state.receipts = [];
+      state.orders = [];
+      state.members = [state.currentMember];
+      if (state.receiptUnsubscribe) state.receiptUnsubscribe();
+      if (state.orderUnsubscribe) state.orderUnsubscribe();
+      if (state.memberUnsubscribe) state.memberUnsubscribe();
+      renderAll();
+    }
   } catch (error) {
     console.error(error);
     setStatus(error.message || "Spajanje nije uspjelo.", true);
@@ -191,6 +258,30 @@ function showAdmin() {
 function showLogin() {
   els.adminPanel.classList.add("hidden");
   els.loginPanel.classList.remove("hidden");
+  document.body.classList.remove("waiter-mode");
+}
+
+function applyRoleUi() {
+  const waiter = isWaiterMode();
+  document.body.classList.toggle("waiter-mode", waiter);
+  els.tabs.forEach((tab) => {
+    tab.classList.toggle("hidden", waiter && tab.dataset.tab !== "pos");
+  });
+  if (waiter) {
+    switchTab("pos");
+  }
+  els.cafeName.textContent = waiter && state.currentMember
+    ? `${state.cafeName} • ${state.currentMember.name}`
+    : state.cafeName;
+  applyMemberPermissions();
+}
+
+function isWaiterMode() {
+  return state.userRole === "waiter";
+}
+
+function isAdminMode() {
+  return state.userRole === "admin";
 }
 
 function cafeDoc() {
@@ -281,6 +372,22 @@ function subscribeMembers() {
     });
 }
 
+function subscribeCurrentMember() {
+  if (state.currentMemberUnsubscribe) state.currentMemberUnsubscribe();
+  if (!state.user) return;
+
+  state.currentMemberUnsubscribe = membersCollection().doc(state.user.uid)
+    .onSnapshot((snapshot) => {
+      if (!snapshot.exists) return;
+      state.currentMember = normalizeMember(snapshot);
+      if (isWaiterMode()) {
+        state.members = [state.currentMember];
+      }
+      applyRoleUi();
+      renderCart();
+    });
+}
+
 function normalizeReceipt(doc) {
   const data = doc.data();
   const items = Array.isArray(data.items) ? data.items.map((item) => ({
@@ -339,15 +446,17 @@ function normalizeMember(doc) {
 }
 
 function renderAll() {
-  renderWaiterOptions();
-  renderDashboard();
   renderPos();
   renderCart();
-  renderOrders();
-  renderReceipts();
-  renderCatalog();
-  renderProcurement();
-  renderStaff();
+  if (isAdminMode()) {
+    renderWaiterOptions();
+    renderDashboard();
+    renderOrders();
+    renderReceipts();
+    renderCatalog();
+    renderProcurement();
+    renderStaff();
+  }
 }
 
 function renderOrders() {
@@ -548,6 +657,7 @@ function renderPos() {
 }
 
 function renderCart() {
+  applyMemberPermissions();
   const lines = Array.from(state.cart.values());
   if (lines.length === 0) {
     els.cartLines.innerHTML = `<div class="empty">Račun je prazan.</div>`;
@@ -567,6 +677,23 @@ function renderCart() {
     `).join("");
   }
   els.cartTotal.textContent = formatEuro(cartTotalCents());
+}
+
+function applyMemberPermissions() {
+  const member = state.currentMember;
+  const canUseHouseAccount = isAdminMode() || member?.canUseHouseAccount === true;
+  const canUseMusic = isAdminMode() || member?.canUseMusic === true;
+
+  setCheckboxPermission(els.houseNote, canUseHouseAccount);
+  setCheckboxPermission(els.musicNote, canUseMusic);
+}
+
+function setCheckboxPermission(input, allowed) {
+  if (!input) return;
+  input.disabled = !allowed;
+  if (!allowed) input.checked = false;
+  const row = input.closest(".checkbox-row");
+  if (row) row.classList.toggle("disabled", !allowed);
 }
 
 function renderReceipts() {
@@ -784,7 +911,10 @@ async function saveReceipt() {
 
   const now = Date.now();
   const receiptNumber = `WEB-${compactDateTime(now)}`;
-  const note = [els.houseNote.checked ? "Na račun kuće" : "", els.musicNote.checked ? "Muzika" : ""]
+  const note = [
+    !els.houseNote.disabled && els.houseNote.checked ? "Na račun kuće" : "",
+    !els.musicNote.disabled && els.musicNote.checked ? "Muzika" : "",
+  ]
     .filter(Boolean)
     .join(" • ");
   const items = lines.map((line) => ({
@@ -795,14 +925,15 @@ async function saveReceipt() {
     lineTotalCents: Number(line.product.priceCents || 0) * line.quantity,
   }));
   const totalCents = sum(items.map((item) => item.lineTotalCents));
-  const currentUserName = displayNameForWaiter(state.user.uid, "Web Admin");
+  const currentUserName = state.currentMember?.name || displayNameForWaiter(state.user.uid, isAdminMode() ? "Web Admin" : "Konobar");
+  const role = state.userRole || "waiter";
 
   const batch = state.db.batch();
   batch.set(receiptsCollection().doc(), {
     receiptNumber,
     waiterId: state.user.uid,
     waiterName: currentUserName,
-    role: "admin",
+    role,
     createdAt: now,
     totalCents,
     note,
@@ -812,20 +943,22 @@ async function saveReceipt() {
     orderNumber: receiptNumber,
     waiterId: state.user.uid,
     waiterName: currentUserName,
-    role: "admin",
+    role,
     createdAt: now,
     completed: false,
     note,
     items,
   });
-  lines.forEach((line) => {
-    const currentStock = Number(line.product.stockQuantityUnits || 0);
-    batch.set(productRef(line.product.id), {
-      stockQuantityUnits: currentStock - line.quantity,
-      stockUpdatedAt: now,
-      updatedAt: now,
-    }, { merge: true });
-  });
+  if (isAdminMode()) {
+    lines.forEach((line) => {
+      const currentStock = Number(line.product.stockQuantityUnits || 0);
+      batch.set(productRef(line.product.id), {
+        stockQuantityUnits: currentStock - line.quantity,
+        stockUpdatedAt: now,
+        updatedAt: now,
+      }, { merge: true });
+    });
+  }
 
   els.saveReceiptButton.disabled = true;
   try {
@@ -1342,10 +1475,18 @@ function switchTab(tabName) {
 }
 
 els.connectButton.addEventListener("click", () => connect(els.invitePayload.value));
-els.clearSessionButton.addEventListener("click", () => {
+els.clearSessionButton.addEventListener("click", async () => {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(WAITER_NAME_KEY);
   els.invitePayload.value = "";
-  setStatus("Spremljeni web admin kod je obrisan.");
+  els.waiterNameInput.value = "";
+  if (state.auth) {
+    await state.auth.signOut();
+  }
+  state.user = null;
+  state.userRole = "";
+  state.currentMember = null;
+  setStatus("Spremljeni kod je obrisan.");
 });
 els.logoutButton.addEventListener("click", async () => {
   localStorage.removeItem(STORAGE_KEY);
@@ -1353,7 +1494,11 @@ els.logoutButton.addEventListener("click", async () => {
   if (state.receiptUnsubscribe) state.receiptUnsubscribe();
   if (state.orderUnsubscribe) state.orderUnsubscribe();
   if (state.memberUnsubscribe) state.memberUnsubscribe();
+  if (state.currentMemberUnsubscribe) state.currentMemberUnsubscribe();
   if (state.auth) await state.auth.signOut();
+  state.userRole = "";
+  state.currentMember = null;
+  state.cart.clear();
   showLogin();
 });
 els.refreshButton.addEventListener("click", renderAll);
@@ -1485,8 +1630,31 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-const savedPayload = localStorage.getItem(STORAGE_KEY);
-if (savedPayload) {
-  els.invitePayload.value = savedPayload;
-  connect(savedPayload);
+const savedName = localStorage.getItem(WAITER_NAME_KEY);
+if (savedName) {
+  els.waiterNameInput.value = savedName;
+}
+
+const inviteFromUrl = new URLSearchParams(window.location.search).get("invite")
+  || new URLSearchParams(window.location.search).get("payload");
+if (inviteFromUrl) {
+  const payloadUrl = window.location.href;
+  els.invitePayload.value = payloadUrl;
+  try {
+    const payload = parsePayload(payloadUrl);
+    if (payload.role === "waiter" && !els.waiterNameInput.value.trim()) {
+      setStatus("Waiter QR je učitan. Upiši ime konobara i klikni Spoji se.");
+    } else {
+      connect(payloadUrl);
+    }
+  } catch (error) {
+    console.error(error);
+    setStatus(error.message || "Waiter QR nije valjan.", true);
+  }
+} else {
+  const savedPayload = localStorage.getItem(STORAGE_KEY);
+  if (savedPayload) {
+    els.invitePayload.value = savedPayload;
+    connect(savedPayload);
+  }
 }

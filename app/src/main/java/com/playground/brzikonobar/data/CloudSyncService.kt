@@ -12,12 +12,15 @@ import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import java.util.Base64
 import java.util.UUID
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import org.json.JSONObject
+
+private const val WEB_WAITER_APP_URL = "https://p3t4r123.github.io/Siply/"
 
 data class CloudConfig(
     val apiKey: String,
@@ -631,17 +634,28 @@ class CloudSyncService(
         cafeId: String,
         inviteCode: String,
         role: String = "waiter",
-    ): String = JSONObject()
-        .put("apiKey", config.apiKey)
-        .put("appId", config.appId)
-        .put("projectId", config.projectId)
-        .put("cafeId", cafeId)
-        .put("inviteCode", inviteCode)
-        .put("role", role)
-        .toString()
+    ): String {
+        val jsonPayload = JSONObject()
+            .put("apiKey", config.apiKey)
+            .put("appId", config.appId)
+            .put("projectId", config.projectId)
+            .put("cafeId", cafeId)
+            .put("inviteCode", inviteCode)
+            .put("role", role)
+            .toString()
+
+        if (role != "waiter") {
+            return jsonPayload
+        }
+
+        val encodedPayload = Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(jsonPayload.toByteArray(Charsets.UTF_8))
+        return "$WEB_WAITER_APP_URL?invite=$encodedPayload"
+    }
 
     fun parseInvitePayload(raw: String): CloudInvitePayload {
-        val json = JSONObject(raw)
+        val json = JSONObject(inviteJsonFromRaw(raw))
         val fallback = defaultConfigOrNull()
         val apiKey = json.optString("apiKey", fallback?.apiKey.orEmpty())
         val appId = json.optString("appId", fallback?.appId.orEmpty())
@@ -657,6 +671,21 @@ class CloudSyncService(
             inviteCode = json.getString("inviteCode"),
             role = json.optString("role", "waiter").ifBlank { "waiter" },
         )
+    }
+
+    private fun inviteJsonFromRaw(raw: String): String {
+        val trimmed = raw.trim()
+        val inviteParam = Regex("""[?&](?:invite|payload)=([^&#]+)""")
+            .find(trimmed)
+            ?.groupValues
+            ?.getOrNull(1)
+
+        if (inviteParam.isNullOrBlank()) {
+            return trimmed
+        }
+
+        val decoded = Base64.getUrlDecoder().decode(inviteParam)
+        return decoded.toString(Charsets.UTF_8)
     }
 
     fun buildQrMatrix(

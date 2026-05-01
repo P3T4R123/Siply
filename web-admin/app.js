@@ -304,6 +304,10 @@ function membersCollection() {
   return cafeDoc().collection("members");
 }
 
+function receiptRef(id) {
+  return receiptsCollection().doc(id);
+}
+
 function productRef(id) {
   return productsCollection().doc(id);
 }
@@ -532,6 +536,7 @@ function renderStaff() {
       </label>
       <div class="row-actions">
         <button class="primary" data-action="save-staff">Spremi</button>
+        ${member.role === "admin" ? "" : `<button class="danger" data-action="delete-staff">Obriši</button>`}
       </div>
     </div>
   `).join("");
@@ -716,22 +721,27 @@ function renderReceipts() {
   }
 
   els.receiptsList.innerHTML = receipts.map((receipt) => `
-    <article class="receipt-card">
+    <article class="receipt-card editable-receipt" data-id="${escapeAttr(receipt.id)}">
       <div class="receipt-head">
         <div>
-          <strong>${escapeHtml(receipt.receiptNumber || receipt.id)}</strong>
+          <input data-field="receiptNumber" value="${escapeAttr(receipt.receiptNumber || receipt.id)}">
           <span>${formatDateTime(receipt.createdAt)} • ${escapeHtml(displayNameForReceipt(receipt))}</span>
         </div>
-        <strong>${formatEuro(receipt.totalCents)}</strong>
+        <label>Ukupno EUR<input data-field="total" inputmode="decimal" value="${formatPriceInput(receipt.totalCents)}"></label>
       </div>
-      ${receipt.note ? `<div class="note-pill">${escapeHtml(receipt.note)}</div>` : ""}
-      <div class="receipt-items">
+      <label class="receipt-note-edit">Oznaka / napomena<input data-field="note" value="${escapeAttr(receipt.note || "")}" placeholder="Na račun kuće • Muzika"></label>
+      <div class="receipt-items receipt-edit-items">
         ${receipt.items.map((item) => `
-          <div>
-            <span>${escapeHtml(item.name)}</span>
-            <span>${item.quantity} kom • ${formatEuro(item.lineTotalCents)}</span>
+          <div class="receipt-edit-item">
+            <input data-field="itemName" value="${escapeAttr(item.name || "")}" placeholder="Artikl">
+            <input data-field="itemQty" inputmode="numeric" value="${Number(item.quantity || 0)}" aria-label="Količina">
+            <input data-field="itemTotal" inputmode="decimal" value="${formatPriceInput(item.lineTotalCents)}" aria-label="Ukupno stavke">
           </div>
         `).join("")}
+      </div>
+      <div class="row-actions receipt-actions">
+        <button class="primary" data-action="save-receipt">Spremi račun</button>
+        <button class="danger" data-action="delete-receipt">Obriši račun</button>
       </div>
     </article>
   `).join("");
@@ -979,6 +989,88 @@ async function saveReceipt() {
   }
 }
 
+async function saveExistingReceipt(card) {
+  const id = card.dataset.id;
+  const receipt = state.receipts.find((item) => item.id === id);
+  if (!receipt) return;
+
+  const receiptNumber = readField(card, "receiptNumber").trim();
+  if (!receiptNumber) {
+    alert("Broj računa je obavezan.");
+    return;
+  }
+
+  const items = Array.from(card.querySelectorAll(".receipt-edit-item"))
+    .map((row, index) => {
+      const original = receipt.items[index] || {};
+      return {
+        productId: original.productId ?? null,
+        cloudProductId: original.cloudProductId || "",
+        name: readField(row, "itemName").trim(),
+        quantity: parseStock(readField(row, "itemQty")),
+        lineTotalCents: parseEuroCents(readField(row, "itemTotal")),
+      };
+    })
+    .filter((item) => item.name && item.quantity > 0);
+
+  if (items.length === 0) {
+    alert("Račun mora imati barem jednu stavku.");
+    return;
+  }
+
+  const totalInput = readField(card, "total").trim();
+  const totalCents = totalInput ? parseEuroCents(totalInput) : sum(items.map((item) => item.lineTotalCents));
+  const note = readField(card, "note").trim();
+  const payload = {
+    receiptNumber,
+    note,
+    totalCents,
+    items,
+    updatedAt: Date.now(),
+    updatedByUid: state.user.uid,
+  };
+
+  await receiptRef(id).set(payload, { merge: true });
+  await updateMatchingOrders(receipt.receiptNumber || receipt.id, payload);
+}
+
+async function deleteReceipt(card) {
+  const id = card.dataset.id;
+  const receipt = state.receipts.find((item) => item.id === id);
+  if (!receipt) return;
+  if (!confirm(`Obrisati račun "${receipt.receiptNumber || receipt.id}"?`)) return;
+
+  await receiptRef(id).delete();
+  await deleteMatchingOrders(receipt.receiptNumber || receipt.id);
+}
+
+async function updateMatchingOrders(orderNumber, payload) {
+  if (!orderNumber) return;
+  const snapshot = await ordersCollection().where("orderNumber", "==", orderNumber).get();
+  if (snapshot.empty) return;
+  const batch = state.db.batch();
+  snapshot.docs.forEach((doc) => {
+    batch.set(doc.ref, {
+      orderNumber: payload.receiptNumber,
+      note: payload.note,
+      totalCents: payload.totalCents,
+      items: payload.items,
+      updatedAt: payload.updatedAt,
+      updatedByUid: payload.updatedByUid,
+    }, { merge: true });
+  });
+  await batch.commit();
+}
+
+async function deleteMatchingOrders(orderNumber) {
+  if (!orderNumber) return;
+  const snapshot = await ordersCollection().where("orderNumber", "==", orderNumber).get();
+  if (snapshot.empty) return;
+  const batch = state.db.batch();
+  snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+}
+
 async function saveStaffMember(row) {
   const id = row.dataset.id;
   const member = state.members.find((item) => item.id === id);
@@ -999,6 +1091,18 @@ async function saveStaffMember(row) {
     canUseMusic: isAdmin || row.querySelector('[data-field="music"]').checked,
     updatedAt: Date.now(),
   }, { merge: true });
+}
+
+async function deleteStaffMember(row) {
+  const id = row.dataset.id;
+  const member = state.members.find((item) => item.id === id);
+  if (!member) return;
+  if (member.role === "admin") {
+    alert("Admin korisnika ne možeš obrisati ovdje.");
+    return;
+  }
+  if (!confirm(`Obrisati konobara "${member.name}"? Njegovi stari računi ostaju u povijesti.`)) return;
+  await membersCollection().doc(id).delete();
 }
 
 async function saveProcurement() {
@@ -1518,6 +1622,22 @@ els.todayDashboardButton.addEventListener("click", () => {
 });
 [els.dashboardFrom, els.dashboardTo, els.dashboardWaiter].forEach((input) => input.addEventListener("input", renderDashboard));
 [els.receiptFrom, els.receiptTo, els.receiptWaiter, els.receiptNoteFilter].forEach((input) => input.addEventListener("input", renderReceipts));
+els.receiptsList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-action]");
+  if (!button) return;
+  const card = button.closest(".receipt-card");
+  if (!card) return;
+  button.disabled = true;
+  const task = button.dataset.action === "delete-receipt"
+    ? deleteReceipt(card)
+    : saveExistingReceipt(card);
+  task.catch((error) => {
+    console.error(error);
+    alert(error.message || "Akcija nad računom nije uspjela. Provjeri Firestore rules.");
+  }).finally(() => {
+    button.disabled = false;
+  });
+});
 els.searchInput.addEventListener("input", renderCatalog);
 els.posSearchInput.addEventListener("input", renderPos);
 els.categoryChips.addEventListener("click", (event) => {
@@ -1578,13 +1698,17 @@ els.productsTable.addEventListener("click", (event) => {
   });
 });
 els.staffTable.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-action='save-staff']");
+  const button = event.target.closest("[data-action]");
   if (!button) return;
   const row = button.closest(".staff-row");
+  if (!row) return;
   button.disabled = true;
-  saveStaffMember(row).catch((error) => {
+  const task = button.dataset.action === "delete-staff"
+    ? deleteStaffMember(row)
+    : saveStaffMember(row);
+  task.catch((error) => {
     console.error(error);
-    alert(error.message || "Spremanje konobara nije uspjelo.");
+    alert(error.message || "Akcija nad konobarom nije uspjela.");
   }).finally(() => {
     button.disabled = false;
   });

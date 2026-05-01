@@ -667,6 +667,42 @@ body.waiter-mode .topbar {
   gap: 12px;
 }
 
+.editable-receipt {
+  gap: 12px;
+}
+
+.editable-receipt .receipt-head {
+  align-items: end;
+}
+
+.editable-receipt .receipt-head > div {
+  display: grid;
+  gap: 6px;
+  flex: 1;
+}
+
+.editable-receipt .receipt-head label {
+  min-width: 170px;
+}
+
+.receipt-note-edit {
+  margin-top: 10px;
+}
+
+.receipt-edit-items {
+  gap: 8px;
+}
+
+.receipt-edit-item {
+  display: grid !important;
+  grid-template-columns: minmax(160px, 1fr) 80px 130px;
+  gap: 8px;
+}
+
+.receipt-actions {
+  margin-top: 12px;
+}
+
 .receipt-head span,
 .receipt-items span:last-child {
   color: var(--muted);
@@ -714,7 +750,7 @@ body.waiter-mode .topbar {
 .staff-table-header,
 .staff-row {
   display: grid;
-  grid-template-columns: 56px minmax(180px, 1.4fr) 100px 130px 100px 120px;
+  grid-template-columns: 56px minmax(180px, 1.4fr) 100px 130px 100px minmax(170px, auto);
   gap: 10px;
   align-items: center;
 }

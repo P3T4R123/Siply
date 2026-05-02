@@ -42,6 +42,7 @@ const els = {
   dashboardWaiter: document.querySelector("#dashboardWaiter"),
   dashboardIncludeHouse: document.querySelector("#dashboardIncludeHouse"),
   dashboardIncludeMusic: document.querySelector("#dashboardIncludeMusic"),
+  exportAnalyticsButton: document.querySelector("#exportAnalyticsButton"),
   todayDashboardButton: document.querySelector("#todayDashboardButton"),
   dashRevenue: document.querySelector("#dashRevenue"),
   dashGross: document.querySelector("#dashGross"),
@@ -1307,6 +1308,21 @@ function groupItemTotals(receipts, labelFn) {
   return sortGroup(grouped);
 }
 
+function groupItemQuantityTotals(receipts, labelFn) {
+  const grouped = new Map();
+  receipts.forEach((receipt) => {
+    receipt.items.forEach((item) => {
+      const label = labelFn(item);
+      const current = grouped.get(label) || { label, quantity: 0, total: 0 };
+      current.quantity += Number(item.quantity || 0);
+      current.total += Number(item.lineTotalCents || 0);
+      grouped.set(label, current);
+    });
+  });
+  return Array.from(grouped.values())
+    .sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, "hr"));
+}
+
 function sortGroup(grouped) {
   return Array.from(grouped.entries())
     .map(([label, value]) => ({ label, value }))
@@ -1375,6 +1391,138 @@ function exportSalesCsv() {
     .sort((a, b) => b[1].total - a[1].total)
     .map(([name, data]) => [name, data.quantity, formatPlainEuro(data.total)]);
   downloadCsv("siply-prodaja.csv", [["pice", "kolicina", "ukupno_eur"], ...rows]);
+}
+
+function exportAnalyticsCsv() {
+  const from = els.dashboardFrom.value;
+  const to = els.dashboardTo.value;
+  const waiter = els.dashboardWaiter.value;
+  const includeHouse = els.dashboardIncludeHouse ? els.dashboardIncludeHouse.checked : true;
+  const includeMusic = els.dashboardIncludeMusic ? els.dashboardIncludeMusic.checked : true;
+  const receipts = filteredReceipts({ from, to, waiter, note: "all" });
+  const billableReceipts = receipts.filter((receipt) => isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic));
+  const excludedReceipts = receipts.filter((receipt) => !isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic));
+  const waiterLabel = waiter && waiter !== "all"
+    ? selectedOptionText(els.dashboardWaiter)
+    : "Svi";
+  const grossTotal = sum(receipts.map((receipt) => receipt.totalCents));
+  const payableTotal = sum(billableReceipts.map((receipt) => receipt.totalCents));
+  const excludedTotal = sum(excludedReceipts.map((receipt) => receipt.totalCents));
+  const houseTotal = sum(receipts.filter((receipt) => receipt.note.includes("Na račun kuće")).map((receipt) => receipt.totalCents));
+  const musicTotal = sum(receipts.filter((receipt) => receipt.note.includes("Muzika")).map((receipt) => receipt.totalCents));
+  const rows = [[
+    "sekcija",
+    "period_od",
+    "period_do",
+    "filter_konobar",
+    "naziv",
+    "broj_racuna",
+    "datum_vrijeme",
+    "konobar",
+    "oznaka",
+    "kategorija",
+    "artikl",
+    "kolicina",
+    "otkucano_eur",
+    "odbijeno_eur",
+    "za_naplatu_eur",
+    "ukljuceno_u_naplatu",
+    "napomena",
+  ]];
+
+  const addRow = (section, values = {}) => {
+    rows.push([
+      section,
+      from || "",
+      to || "",
+      waiterLabel,
+      values.name || "",
+      values.receiptNumber || "",
+      values.dateTime || "",
+      values.waiter || "",
+      values.note || "",
+      values.category || "",
+      values.product || "",
+      values.quantity ?? "",
+      values.grossCents == null ? "" : formatPlainEuro(values.grossCents),
+      values.excludedCents == null ? "" : formatPlainEuro(values.excludedCents),
+      values.payableCents == null ? "" : formatPlainEuro(values.payableCents),
+      values.included == null ? "" : (values.included ? "da" : "ne"),
+      values.comment || "",
+    ]);
+  };
+
+  addRow("SAZETAK", { name: "Otkucano ukupno", grossCents: grossTotal });
+  addRow("SAZETAK", { name: "Za naplatu", payableCents: payableTotal });
+  addRow("SAZETAK", { name: "Odbijeno oznake", excludedCents: excludedTotal });
+  addRow("SAZETAK", { name: "Na račun kuće ukupno", grossCents: houseTotal, included: includeHouse });
+  addRow("SAZETAK", { name: "Muzika ukupno", grossCents: musicTotal, included: includeMusic });
+  addRow("SAZETAK", { name: "Računi za naplatu / ukupno", quantity: `${billableReceipts.length} / ${receipts.length}` });
+  addRow("SAZETAK", {
+    name: "Prosjek računa za naplatu",
+    payableCents: billableReceipts.length ? Math.round(payableTotal / billableReceipts.length) : 0,
+  });
+
+  groupWaiterControlTotals(receipts, includeHouse, includeMusic).forEach((row) => {
+    addRow("KONOBAR", {
+      name: row.label,
+      waiter: row.label,
+      quantity: `${row.payableCount} / ${row.count}`,
+      grossCents: row.gross,
+      excludedCents: row.excluded,
+      payableCents: row.payable,
+    });
+  });
+
+  groupItemQuantityTotals(billableReceipts, categoryForItem).forEach((row) => {
+    addRow("KATEGORIJA_ZA_NAPLATU", { name: row.label, category: row.label, quantity: row.quantity, payableCents: row.total });
+  });
+
+  groupItemQuantityTotals(billableReceipts, (item) => item.name || "Artikl").forEach((row) => {
+    addRow("ARTIKL_ZA_NAPLATU", { name: row.label, product: row.label, quantity: row.quantity, payableCents: row.total });
+  });
+
+  groupReceiptTotals(billableReceipts, (receipt) => `${new Date(receipt.createdAt).getHours().toString().padStart(2, "0")}:00`).forEach((row) => {
+    addRow("SAT_ZA_NAPLATU", { name: row.label, payableCents: row.value });
+  });
+
+  receipts.forEach((receipt) => {
+    const included = isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic);
+    const waiterName = displayNameForReceipt(receipt);
+    addRow("RACUN", {
+      name: receipt.receiptNumber || receipt.id,
+      receiptNumber: receipt.receiptNumber || receipt.id,
+      dateTime: formatDateTime(receipt.createdAt),
+      waiter: waiterName,
+      note: receipt.note,
+      quantity: receipt.items.length,
+      grossCents: receipt.totalCents,
+      excludedCents: included ? 0 : receipt.totalCents,
+      payableCents: included ? receipt.totalCents : 0,
+      included,
+    });
+
+    receipt.items.forEach((item) => {
+      addRow("STAVKA", {
+        name: receipt.receiptNumber || receipt.id,
+        receiptNumber: receipt.receiptNumber || receipt.id,
+        dateTime: formatDateTime(receipt.createdAt),
+        waiter: waiterName,
+        note: receipt.note,
+        category: categoryForItem(item),
+        product: item.name,
+        quantity: item.quantity,
+        grossCents: item.lineTotalCents,
+        excludedCents: included ? 0 : item.lineTotalCents,
+        payableCents: included ? item.lineTotalCents : 0,
+        included,
+      });
+    });
+  });
+
+  const filenameFrom = from || "pocetak";
+  const filenameTo = to || "kraj";
+  downloadCsv(`siply-analitika-${filenameFrom}_${filenameTo}.csv`, rows);
 }
 
 function exportCatalogCsv() {
@@ -1464,6 +1612,10 @@ function downloadBackup() {
 function downloadCsv(filename, rows) {
   const csv = rows.map((row) => row.map(csvCell).join(";")).join("\n");
   downloadText(filename, `\ufeff${csv}`, "text/csv;charset=utf-8");
+}
+
+function selectedOptionText(select) {
+  return select?.selectedOptions?.[0]?.textContent?.trim() || "";
 }
 
 function downloadText(filename, text, type) {
@@ -1837,6 +1989,7 @@ els.saveProcurementButton.addEventListener("click", () => saveProcurement().catc
 }));
 els.exportReceiptsButton.addEventListener("click", exportReceiptCsv);
 els.exportSalesButton.addEventListener("click", exportSalesCsv);
+if (els.exportAnalyticsButton) els.exportAnalyticsButton.addEventListener("click", exportAnalyticsCsv);
 els.resetReceiptsButton.addEventListener("click", () => resetAllReceipts().catch((error) => {
   console.error(error);
   alert(error.message || "Reset računa nije uspio. Provjeri Firestore rules.");

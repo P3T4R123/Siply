@@ -1523,6 +1523,7 @@ function exportAnalyticsCsv() {
   const filenameFrom = from || "pocetak";
   const filenameTo = to || "kraj";
   downloadCsv(`siply-analitika-${filenameFrom}_${filenameTo}.csv`, rows);
+  return receipts.length;
 }
 
 function exportCatalogCsv() {
@@ -1627,7 +1628,7 @@ function downloadText(filename, text, type) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 function csvCell(value) {
@@ -1989,7 +1990,25 @@ els.saveProcurementButton.addEventListener("click", () => saveProcurement().catc
 }));
 els.exportReceiptsButton.addEventListener("click", exportReceiptCsv);
 els.exportSalesButton.addEventListener("click", exportSalesCsv);
-if (els.exportAnalyticsButton) els.exportAnalyticsButton.addEventListener("click", exportAnalyticsCsv);
+if (els.exportAnalyticsButton) {
+  els.exportAnalyticsButton.addEventListener("click", () => {
+    const originalText = els.exportAnalyticsButton.textContent;
+    els.exportAnalyticsButton.disabled = true;
+    try {
+      const receiptCount = exportAnalyticsCsv();
+      els.exportAnalyticsButton.textContent = `CSV spremljen (${receiptCount} računa)`;
+    } catch (error) {
+      console.error(error);
+      els.exportAnalyticsButton.textContent = originalText;
+      alert(error.message || "Export kompletne analitike nije uspio.");
+    } finally {
+      setTimeout(() => {
+        els.exportAnalyticsButton.disabled = false;
+        els.exportAnalyticsButton.textContent = originalText;
+      }, 1800);
+    }
+  });
+}
 els.resetReceiptsButton.addEventListener("click", () => resetAllReceipts().catch((error) => {
   console.error(error);
   alert(error.message || "Reset računa nije uspio. Provjeri Firestore rules.");

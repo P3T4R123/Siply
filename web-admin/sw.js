@@ -1,9 +1,9 @@
-const CACHE_NAME = "siply-pwa-v9";
+const CACHE_NAME = "siply-pwa-v10";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js",
+  "./app.js?v=20260502-analytics-export",
   "./manifest.webmanifest",
   "./icons/siply-180.png",
   "./icons/siply-192.png",

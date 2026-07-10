@@ -206,8 +206,8 @@ fun PosApp(
         }
     }
 
-    LaunchedEffect(uiState.cloudCafeId) {
-        if (uiState.cloudCafeId.isNotBlank() && selectedTab == MainTab.Settings) {
+    LaunchedEffect(uiState.cloudCafeName) {
+        if (uiState.cloudCafeName.isNotBlank() && selectedTab == MainTab.Settings) {
             selectedTab = MainTab.Products
         }
     }

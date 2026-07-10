@@ -664,11 +664,13 @@ class PosRepository(
     suspend fun joinCafeAsWaiter(
         rawInvitePayload: String,
         waiterName: String,
+        waiterEmail: String,
     ) {
         val payload = cloudSyncService.parseInvitePayload(rawInvitePayload)
         val session = cloudSyncService.joinCafeAsWaiter(
             payload = payload,
             waiterName = waiterName.trim(),
+            waiterEmail = waiterEmail.trim().lowercase(),
         )
         val config = CloudConfig(
             apiKey = payload.apiKey,
@@ -694,6 +696,40 @@ class PosRepository(
                 ),
             )
         }
+    }
+
+    suspend fun signInWithGoogle(idToken: String): Pair<String, String> {
+        val user = cloudSyncService.signInWithGoogle(
+            config = cloudSyncService.defaultConfig(),
+            idToken = idToken,
+        )
+        val email = user.email.orEmpty()
+        if (email.isBlank()) {
+            error("Google račun nema dostupnu e-mail adresu.")
+        }
+        return user.displayName.orEmpty() to email
+    }
+
+    suspend fun forgetCloudConnection() {
+        val state = dao.getAppState() ?: return
+        state.toCloudConfigOrNull()?.let { config ->
+            runCatching { cloudSyncService.signOut(config) }
+        }
+        dao.upsertAppState(
+            state.copy(
+                cloudApiKey = "",
+                cloudAppId = "",
+                cloudProjectId = "",
+                cloudCafeId = "",
+                cloudCafeName = "",
+                cloudUserId = "",
+                cloudUserName = "",
+                cloudUserRole = "",
+                cloudInviteCode = "",
+                canUseHouseAccount = false,
+                canUseMusic = false,
+            ),
+        )
     }
 
     suspend fun refreshCloudMemberNow() {

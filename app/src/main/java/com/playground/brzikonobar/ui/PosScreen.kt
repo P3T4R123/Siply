@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Download
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -116,6 +118,7 @@ private enum class MainTab {
     Dashboard,
     Products,
     Receipt,
+    LastOrder,
     History,
     Settings,
 }
@@ -157,7 +160,9 @@ fun PosApp(
     onRefreshWaiterInvite: suspend () -> Boolean,
     onRefreshWebAdminInvite: suspend () -> String?,
     onRefreshCloudCatalog: () -> Unit,
-    onJoinCafeAsWaiter: suspend (String, String) -> Boolean,
+    onJoinCafeAsWaiter: suspend (String, String, String) -> String?,
+    onSignInWithGoogle: suspend () -> Pair<String, String>?,
+    onForgetCloudConnection: () -> Unit,
     onRestoreBackup: suspend (String) -> Boolean,
     onExportResult: (Boolean, String) -> Unit,
     loadLastReceiptInfo: suspend () -> LastReceiptInfo?,
@@ -249,6 +254,15 @@ fun PosApp(
                     label = null,
                     alwaysShowLabel = false,
                 )
+                if (isWaiter) {
+                    NavigationBarItem(
+                        selected = selectedTab == MainTab.LastOrder,
+                        onClick = { selectedTab = MainTab.LastOrder },
+                        icon = { Icon(Icons.Rounded.History, contentDescription = "Zadnja narudžba") },
+                        label = null,
+                        alwaysShowLabel = false,
+                    )
+                }
                 if (!isWaiter) {
                     NavigationBarItem(
                         selected = selectedTab == MainTab.History,
@@ -287,6 +301,10 @@ fun PosApp(
                 onAdjustQuantity = onAdjustQuantity,
                 onSaveReceipt = onSaveReceipt,
                 onBackToProducts = { selectedTab = MainTab.Products },
+                modifier = Modifier.then(Modifier).padding(padding),
+            )
+            MainTab.LastOrder -> LastOrderTab(
+                uiState = uiState,
                 modifier = Modifier.then(Modifier).padding(padding),
             )
             MainTab.History -> HistoryTab(
@@ -332,6 +350,7 @@ fun PosApp(
                 onRefreshWebAdminInvite = onRefreshWebAdminInvite,
                 onRefreshCloudCatalog = onRefreshCloudCatalog,
                 onJoinCafeAsWaiter = onJoinCafeAsWaiter,
+                onForgetCloudConnection = onForgetCloudConnection,
                 onRestoreBackup = onRestoreBackup,
                 buildPriceListExportPayload = buildPriceListExportPayload,
                 buildBackupPayload = buildBackupPayload,
@@ -603,7 +622,20 @@ private fun ProductsTab(
     onAddProduct: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val productRows = uiState.products.chunked(2)
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val normalizedSearch = searchQuery.trim().lowercase(Locale.getDefault())
+    val visibleProducts = remember(uiState.allProducts, uiState.products, normalizedSearch) {
+        if (normalizedSearch.isBlank()) {
+            uiState.products
+        } else {
+            uiState.allProducts.filter { product ->
+                "${product.categoryName} ${product.name}"
+                    .lowercase(Locale.getDefault())
+                    .contains(normalizedSearch)
+            }
+        }
+    }
+    val productRows = visibleProducts.chunked(2)
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
@@ -612,6 +644,23 @@ private fun ProductsTab(
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Pretraži sve artikle") },
+                    leadingIcon = {
+                        Icon(Icons.Rounded.Search, contentDescription = null)
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotBlank()) {
+                            FilledTonalIconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Očisti pretragu")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                )
                 Text(
                     text = "Kategorije",
                     style = MaterialTheme.typography.titleMedium,
@@ -640,8 +689,10 @@ private fun ProductsTab(
 
         if (uiState.loading) {
             item { EmptyCard("Punim artikle...") }
-        } else if (uiState.products.isEmpty()) {
+        } else if (normalizedSearch.isBlank() && uiState.products.isEmpty()) {
             item { EmptyCard("Nema artikala u ovoj kategoriji.") }
+        } else if (visibleProducts.isEmpty()) {
+            item { EmptyCard("Nema artikala za ovu pretragu.") }
         } else {
             items(productRows) { row ->
                 Row(
@@ -652,6 +703,7 @@ private fun ProductsTab(
                         ProductCard(
                             product = product,
                             onClick = { onAddProduct(product.id) },
+                            showCategory = normalizedSearch.isNotBlank(),
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -679,7 +731,9 @@ private fun SettingsTab(
     onRefreshWaiterInvite: suspend () -> Boolean,
     onRefreshWebAdminInvite: suspend () -> String?,
     onRefreshCloudCatalog: () -> Unit,
-    onJoinCafeAsWaiter: suspend (String, String) -> Boolean,
+    onJoinCafeAsWaiter: suspend (String, String, String) -> String?,
+    onSignInWithGoogle: suspend () -> Pair<String, String>?,
+    onForgetCloudConnection: () -> Unit,
     onRestoreBackup: suspend (String) -> Boolean,
     buildPriceListExportPayload: suspend () -> ExportPayload?,
     buildBackupPayload: suspend () -> ExportPayload?,
@@ -696,6 +750,7 @@ private fun SettingsTab(
     var cafeName by rememberSaveable(uiState.cloudCafeName) { mutableStateOf(uiState.cloudCafeName) }
     var adminName by rememberSaveable(uiState.cloudUserName) { mutableStateOf(uiState.cloudUserName) }
     var waiterName by rememberSaveable { mutableStateOf("") }
+    var waiterEmail by rememberSaveable { mutableStateOf("") }
     var invitePayloadInput by rememberSaveable { mutableStateOf("") }
     var onlineActionLoading by rememberSaveable { mutableStateOf(false) }
     var onlineStatusMessage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -799,10 +854,10 @@ private fun SettingsTab(
                 onlineStatusMessage = "QR nije očitan. Pokušaj ponovno ili zalijepi payload ručno."
             }
 
-            waiterName.isBlank() -> {
+            waiterName.isBlank() || waiterEmail.isBlank() -> {
                 invitePayloadInput = scannedPayload
                 onlineStatusSuccess = false
-                onlineStatusMessage = "QR je očitan. Upiši ime konobara pa klikni Spoji waitera."
+                onlineStatusMessage = "QR je očitan. Upiši ime i e-mail konobara pa klikni Spoji se."
             }
 
             else -> {
@@ -811,13 +866,14 @@ private fun SettingsTab(
                     onlineActionLoading = true
                     onlineStatusSuccess = null
                     onlineStatusMessage = "QR je očitan. Spajam konobara..."
-                    val success = onJoinCafeAsWaiter(scannedPayload, waiterName)
+                    val errorMessage = onJoinCafeAsWaiter(scannedPayload, waiterName, waiterEmail)
+                    val success = errorMessage == null
                     onlineActionLoading = false
                     onlineStatusSuccess = success
                     onlineStatusMessage = if (success) {
                         "Konobar je uspješno spojen na kafić."
                     } else {
-                        "QR je očitan, ali spajanje nije uspjelo. Provjeri Firebase pravila i internet."
+                        errorMessage
                     }
                 }
             }
@@ -895,6 +951,12 @@ private fun SettingsTab(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        TextButton(
+                            onClick = onForgetCloudConnection,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Resetiraj cloud vezu na ovom uređaju")
+                        }
                     }
                 }
             }
@@ -1146,6 +1208,38 @@ private fun SettingsTab(
                                 singleLine = true,
                             )
                             OutlinedTextField(
+                                value = waiterEmail,
+                                onValueChange = { waiterEmail = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("E-mail konobara") },
+                                supportingText = { Text("Služi za evidenciju. Lozinka nije potrebna.") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                                singleLine = true,
+                            )
+                            FilledTonalButton(
+                                enabled = !onlineActionLoading,
+                                onClick = {
+                                    scope.launch {
+                                        onlineActionLoading = true
+                                        onlineStatusMessage = "Otvaram Google račune..."
+                                        val profile = runCatching { onSignInWithGoogle() }.getOrNull()
+                                        onlineActionLoading = false
+                                        if (profile != null) {
+                                            if (profile.first.isNotBlank()) waiterName = profile.first
+                                            waiterEmail = profile.second
+                                            onlineStatusSuccess = true
+                                            onlineStatusMessage = "Google račun je prijavljen. Sada skeniraj QR ili upiši kod kafića."
+                                        } else {
+                                            onlineStatusSuccess = false
+                                            onlineStatusMessage = "Google prijava nije dovršena. Možeš pokušati ponovno ili nastaviti bez Googlea."
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Nastavi s Googleom")
+                            }
+                            OutlinedTextField(
                                 value = invitePayloadInput,
                                 onValueChange = { invitePayloadInput = it },
                                 modifier = Modifier.fillMaxWidth(),
@@ -1173,13 +1267,14 @@ private fun SettingsTab(
                                     scope.launch {
                                         onlineActionLoading = true
                                         onlineStatusMessage = null
-                                        val success = onJoinCafeAsWaiter(invitePayloadInput, waiterName)
+                                        val errorMessage = onJoinCafeAsWaiter(invitePayloadInput, waiterName, waiterEmail)
+                                        val success = errorMessage == null
                                         onlineActionLoading = false
                                         onlineStatusSuccess = success
                                         onlineStatusMessage = if (success) {
                                             "Konobar je uspješno spojen na kafić."
                                         } else {
-                                            "Spajanje nije uspjelo. Provjeri QR kod, internet i Firebase postavke."
+                                            errorMessage
                                         }
                                     }
                                 },
@@ -1193,7 +1288,13 @@ private fun SettingsTab(
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                 }
-                                Text("Spoji waitera")
+                                Text("Spoji se bez lozinke")
+                            }
+                            TextButton(
+                                onClick = onForgetCloudConnection,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("Resetiraj cloud vezu na ovom uređaju")
                             }
                         }
                     }
@@ -1884,6 +1985,102 @@ private fun ReceiptTab(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold,
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LastOrderTab(
+    uiState: PosUiState,
+    modifier: Modifier = Modifier,
+) {
+    val lastReceipt = uiState.receiptHistory.maxByOrNull { receipt -> receipt.createdAtMillis }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ),
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "Moja zadnja narudžba",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        text = "Ovdje konobar vidi samo zadnji račun spremljen na ovom uređaju.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        if (lastReceipt == null) {
+            item {
+                EmptyCard("Još nema spremljene narudžbe na ovom uređaju.")
+            }
+        } else {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    text = lastReceipt.receiptNumber,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.ExtraBold,
+                                )
+                                Text(
+                                    text = lastReceipt.createdAtLabel,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                text = lastReceipt.totalLabel,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.ExtraBold,
+                                textAlign = TextAlign.End,
+                            )
+                        }
+                        if (lastReceipt.note.isNotBlank()) {
+                            Text(
+                                text = lastReceipt.note,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(
+                            text = lastReceipt.itemsCountLabel,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -3792,6 +3989,7 @@ private fun ProductCard(
     product: ProductUi,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showCategory: Boolean = false,
 ) {
     Card(
         onClick = onClick,
@@ -3847,6 +4045,15 @@ private fun ProductCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
+                if (showCategory) {
+                    Text(
+                        text = product.categoryName,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 Text(
                     text = product.priceLabel,
                     style = MaterialTheme.typography.bodyLarge,
@@ -3972,6 +4179,7 @@ private fun tabTitle(tab: MainTab): String = when (tab) {
     MainTab.Dashboard -> "Dashboard"
     MainTab.Products -> "Artikli"
     MainTab.Receipt -> "Račun"
+    MainTab.LastOrder -> "Zadnja"
     MainTab.History -> "Povijest"
     MainTab.Settings -> "Settings"
 }
@@ -3980,6 +4188,9 @@ private fun tabSubtitle(tab: MainTab, uiState: PosUiState): String = when (tab) 
     MainTab.Dashboard -> "${uiState.dashboardSelectedDateLabel} • ${uiState.dailyStats.totalLabel}"
     MainTab.Products -> "${uiState.products.size} artikala u kategoriji"
     MainTab.Receipt -> "${uiState.cartItemsCount} stavki • ${uiState.subtotalLabel}"
+    MainTab.LastOrder -> uiState.receiptHistory.maxByOrNull { it.createdAtMillis }?.let { receipt ->
+        "${receipt.receiptNumber} • ${receipt.totalLabel}"
+    } ?: "Nema spremljene narudžbe"
     MainTab.History -> "${uiState.receiptHistory.size} lokalnih računa"
     MainTab.Settings -> when (uiState.cloudUserRole) {
         "admin" -> "Admin za ${uiState.cloudCafeName}"

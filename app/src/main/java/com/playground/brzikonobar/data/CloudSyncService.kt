@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -113,6 +114,17 @@ data class CloudReceiptItem(
 class CloudSyncService(
     private val context: Context,
 ) {
+    suspend fun signInWithGoogle(
+        config: CloudConfig,
+        idToken: String,
+    ): FirebaseUser {
+        val credential = GoogleAuthProvider.getCredential(idToken, null)
+        val result = FirebaseAuth.getInstance(firebaseApp(config))
+            .signInWithCredential(credential)
+            .await()
+        return result.user ?: error("Google prijava nije vratila korisnika.")
+    }
+
     fun defaultConfig(): CloudConfig =
         defaultConfigOrNull() ?: error("Firebase config nije dostupan u aplikaciji.")
 
@@ -220,6 +232,7 @@ class CloudSyncService(
     suspend fun joinCafeAsWaiter(
         payload: CloudInvitePayload,
         waiterName: String,
+        waiterEmail: String,
     ): CloudSession {
         val config = CloudConfig(
             apiKey = payload.apiKey,
@@ -267,10 +280,12 @@ class CloudSyncService(
             mapOf(
                 "uid" to user.uid,
                 "name" to waiterName,
+                "email" to waiterEmail,
                 "role" to "waiter",
                 "canUseHouseAccount" to false,
                 "canUseMusic" to false,
                 "joinedAt" to FieldValue.serverTimestamp(),
+                "inviteCode" to payload.inviteCode,
             ),
         ).await()
 
@@ -712,6 +727,10 @@ class CloudSyncService(
         auth.currentUser?.let { return it }
         val result = auth.signInAnonymously().await()
         return result.user ?: error("Ne mogu prijaviti uređaj u cloud.")
+    }
+
+    fun signOut(config: CloudConfig) {
+        FirebaseAuth.getInstance(firebaseApp(config)).signOut()
     }
 
     private fun firestore(config: CloudConfig): FirebaseFirestore =

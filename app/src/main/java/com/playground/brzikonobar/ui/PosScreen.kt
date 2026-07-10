@@ -350,6 +350,7 @@ fun PosApp(
                 onRefreshWebAdminInvite = onRefreshWebAdminInvite,
                 onRefreshCloudCatalog = onRefreshCloudCatalog,
                 onJoinCafeAsWaiter = onJoinCafeAsWaiter,
+                onSignInWithGoogle = onSignInWithGoogle,
                 onForgetCloudConnection = onForgetCloudConnection,
                 onRestoreBackup = onRestoreBackup,
                 buildPriceListExportPayload = buildPriceListExportPayload,

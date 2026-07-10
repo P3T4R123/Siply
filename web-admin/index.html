@@ -23,6 +23,9 @@
       <label>Ime konobara
         <input id="waiterNameInput" placeholder="Npr. Marko">
       </label>
+      <label>E-mail konobara
+        <input id="waiterEmailInput" type="email" autocomplete="email" placeholder="marko@example.com">
+      </label>
       <textarea id="invitePayload" rows="7" placeholder="Zalijepi kod ovdje ili otvori waiter QR link"></textarea>
       <div class="actions">
         <button id="connectButton" class="primary">Spoji se</button>
@@ -290,6 +293,23 @@
               <button id="forgetWebCodeButton" class="danger">Zaboravi web kod</button>
             </div>
           </article>
+          <article class="panel">
+            <div class="section-header compact">
+              <div>
+                <p class="eyebrow">Konobari</p>
+                <h2>Waiter QR</h2>
+              </div>
+            </div>
+            <p class="muted small">Generiraj QR za spajanje novog konobara na ovaj kafić.</p>
+            <div class="actions stacked">
+              <button id="generateWaiterQrButton" class="primary">Generiraj waiter QR</button>
+            </div>
+            <div id="waiterQrPanel" class="waiter-qr-panel hidden">
+              <canvas id="waiterQrCanvas" width="240" height="240"></canvas>
+              <label>Ručni kod za Android<input id="waiterManualCode" readonly></label>
+              <label>QR link<textarea id="waiterInviteLink" rows="4" readonly></textarea></label>
+            </div>
+          </article>
         </section>
       </section>
     </section>
@@ -298,6 +318,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-  <script src="./app.js?v=20260502-analytics-export"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="./app.js?v=20260710-email-onboarding"></script>
 </body>
 </html>

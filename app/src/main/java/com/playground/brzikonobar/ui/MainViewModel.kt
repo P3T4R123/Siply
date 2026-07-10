@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 data class CategoryUi(
     val id: Long,
@@ -50,6 +51,7 @@ data class CategoryUi(
 data class ProductUi(
     val id: Long,
     val name: String,
+    val categoryName: String,
     val priceLabel: String,
     val emoji: String,
     val imageDataUrl: String,
@@ -179,6 +181,7 @@ data class PosUiState(
     val nextReceiptNumber: String = "00000000-001",
     val categories: List<CategoryUi> = emptyList(),
     val selectedCategoryId: Long? = null,
+    val allProducts: List<ProductUi> = emptyList(),
     val products: List<ProductUi> = emptyList(),
     val cartItems: List<CartLineUi> = emptyList(),
     val subtotalLabel: String = formatCurrency(0),
@@ -721,23 +724,55 @@ class MainViewModel(
     suspend fun joinCafeAsWaiter(
         invitePayload: String,
         waiterName: String,
-    ): Boolean {
+        waiterEmail: String,
+    ): String? {
         if (invitePayload.isBlank()) {
-            _messages.emit("Skeniraj ili zalijepi QR payload.")
-            return false
+            val message = "Skeniraj ili zalijepi QR payload."
+            _messages.emit(message)
+            return message
         }
         if (waiterName.isBlank()) {
-            _messages.emit("Upiši ime konobara.")
-            return false
+            val message = "Upiši ime konobara."
+            _messages.emit(message)
+            return message
+        }
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(waiterEmail.trim()).matches()) {
+            val message = "Upiši valjanu e-mail adresu konobara. Lozinka nije potrebna."
+            _messages.emit(message)
+            return message
         }
 
         return runCatching {
-            repository.joinCafeAsWaiter(invitePayload, waiterName)
-            _messages.emit("Konobar je spojen na online kafić.")
-            true
+            withTimeout(25_000) {
+                repository.joinCafeAsWaiter(invitePayload, waiterName, waiterEmail)
+            }
+            _messages.emit("Konobar je spojen na online kafić bez lozinke.")
+            null
         }.getOrElse {
-            _messages.emit(it.message ?: "Spajanje waitera nije uspjelo.")
-            false
+            val message = waiterJoinErrorMessage(it)
+            _messages.emit(message)
+            message
+        }
+    }
+
+    suspend fun signInWithGoogle(idToken: String): Pair<String, String>? = runCatching {
+        repository.signInWithGoogle(idToken)
+    }.onSuccess {
+        _messages.emit("Google račun je uspješno prijavljen.")
+    }.getOrElse {
+        _messages.emit(it.message ?: "Google prijava nije uspjela.")
+        null
+    }
+
+    fun forgetCloudConnection() {
+        viewModelScope.launch {
+            runCatching {
+                repository.forgetCloudConnection()
+            }.onSuccess {
+                _messages.emit("Cloud veza je obrisana na ovom uređaju. Skeniraj novi QR i spoji se ponovno.")
+            }.onFailure {
+                _messages.emit(it.message ?: "Brisanje cloud veze nije uspjelo.")
+            }
         }
     }
 
@@ -909,12 +944,12 @@ class MainViewModel(
         }
         val rowsById = rows.associateBy { it.productId }
 
-        val products = rows
-            .filter { it.categoryId == activeCategoryId }
+        val allProducts = rows
             .map { row ->
                 ProductUi(
                     id = row.productId,
                     name = row.productName,
+                    categoryName = row.categoryName,
                     priceLabel = formatCurrency(row.priceCents),
                     emoji = row.emoji,
                     imageDataUrl = row.imageDataUrl,
@@ -922,6 +957,8 @@ class MainViewModel(
                     quantityInCart = cart[row.productId] ?: 0,
                 )
             }
+        val products = allProducts
+            .filter { product -> rowsById[product.id]?.categoryId == activeCategoryId }
 
         val inventorySourceForCategory = inventoryItems
             .filter { item -> item.categoryId == activeCategoryId }
@@ -1168,6 +1205,7 @@ class MainViewModel(
             nextReceiptNumber = formatReceiptNumber(todayKey, nextSequence),
             categories = categories,
             selectedCategoryId = activeCategoryId,
+            allProducts = allProducts,
             products = products,
             cartItems = cartItems,
             subtotalLabel = formatCurrency(subtotal),
@@ -1442,6 +1480,30 @@ class MainViewModel(
             .atZone(ZoneId.systemDefault())
             .toLocalDate()
         return !date.isBefore(start) && !date.isAfter(end)
+    }
+
+    private fun waiterJoinErrorMessage(error: Throwable): String {
+        val rawMessage = error.message.orEmpty()
+        val normalized = rawMessage.lowercase()
+        return when {
+            error is kotlinx.coroutines.TimeoutCancellationException ->
+                "Spajanje traje predugo. Na ovom mobitelu Firebase ne vraća odgovor. Isključi VPN/private DNS, provjeri datum i vrijeme, ažuriraj Google Play services ili probaj preko mobilnih podataka."
+
+            "configuration_not_found" in normalized || "anonymous" in normalized && "disabled" in normalized ->
+                "Spajanje nije uspjelo: u Firebase Authentication uključi Anonymous sign-in."
+
+            "permission_denied" in normalized || "missing or insufficient permissions" in normalized ->
+                "Spajanje nije uspjelo: Firestore rules ne dopuštaju upis konobara. Objavi najnovija pravila iz firestore.rules."
+
+            "qr code" in normalized || "qr" in normalized || "invite" in normalized ->
+                rawMessage
+
+            rawMessage.isNotBlank() ->
+                "Spajanje nije uspjelo: $rawMessage"
+
+            else ->
+                "Spajanje waitera nije uspjelo. Provjeri internet, QR kod i Firebase postavke."
+        }
     }
 
     companion object {

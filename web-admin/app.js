@@ -1,5 +1,8 @@
 const STORAGE_KEY = "siply.webAdmin.payload";
 const WAITER_NAME_KEY = "siply.web.waiterName";
+const WAITER_EMAIL_KEY = "siply.web.waiterEmail";
+const ORDER_HISTORY_DAYS = 5;
+const DAY_MILLIS = 24 * 60 * 60 * 1000;
 
 const state = {
   app: null,
@@ -28,6 +31,7 @@ const els = {
   adminPanel: document.querySelector("#adminPanel"),
   invitePayload: document.querySelector("#invitePayload"),
   waiterNameInput: document.querySelector("#waiterNameInput"),
+  waiterEmailInput: document.querySelector("#waiterEmailInput"),
   connectButton: document.querySelector("#connectButton"),
   clearSessionButton: document.querySelector("#clearSessionButton"),
   loginStatus: document.querySelector("#loginStatus"),
@@ -103,6 +107,11 @@ const els = {
   importCatalogInput: document.querySelector("#importCatalogInput"),
   deleteInactiveProductsButton: document.querySelector("#deleteInactiveProductsButton"),
   settingsInfo: document.querySelector("#settingsInfo"),
+  generateWaiterQrButton: document.querySelector("#generateWaiterQrButton"),
+  waiterQrPanel: document.querySelector("#waiterQrPanel"),
+  waiterQrCanvas: document.querySelector("#waiterQrCanvas"),
+  waiterManualCode: document.querySelector("#waiterManualCode"),
+  waiterInviteLink: document.querySelector("#waiterInviteLink"),
   downloadBackupButton: document.querySelector("#downloadBackupButton"),
   forgetWebCodeButton: document.querySelector("#forgetWebCodeButton"),
 };
@@ -141,6 +150,15 @@ function decodeBase64Url(value) {
   const binary = atob(normalized);
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
   return new TextDecoder().decode(bytes);
+}
+
+function encodeBase64Url(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 function firebaseConfig(payload) {
@@ -194,18 +212,24 @@ async function connect(rawPayload) {
       throw new Error("Ovaj browser je već spojen s drugom ulogom. Klikni Odjava ili Očisti spremljeno pa pokušaj ponovno.");
     }
     const typedName = els.waiterNameInput.value.trim();
+    const typedEmail = els.waiterEmailInput.value.trim().toLowerCase();
     const memberName = role === "admin"
       ? (existingMember?.name || "Web Admin")
       : (existingMember?.name || typedName);
+    const memberEmail = existingMember?.email || typedEmail;
 
     if (role === "waiter" && !memberName) {
       throw new Error("Upiši ime konobara prije spajanja.");
+    }
+    if (role === "waiter" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(memberEmail)) {
+      throw new Error("Upiši valjanu e-mail adresu. Lozinka nije potrebna.");
     }
 
     if (!webMemberSnapshot.exists || role === "admin") {
       await webMemberRef.set({
         uid: state.user.uid,
         name: memberName,
+        email: memberEmail,
         role,
         canUseHouseAccount: role === "admin" || existingMember?.canUseHouseAccount === true,
         canUseMusic: role === "admin" || existingMember?.canUseMusic === true,
@@ -228,6 +252,7 @@ async function connect(rawPayload) {
 
     localStorage.setItem(STORAGE_KEY, rawPayload.trim());
     if (typedName) localStorage.setItem(WAITER_NAME_KEY, typedName);
+    if (typedEmail) localStorage.setItem(WAITER_EMAIL_KEY, typedEmail);
     state.cafeName = cafeSnapshot.data().name || "Siply kafić";
     els.cafeName.textContent = state.cafeName;
     els.settingsInfo.textContent = `Spojeno na ${state.cafeName}. Web korisnik: ${state.user.uid}`;
@@ -311,6 +336,10 @@ function membersCollection() {
   return cafeDoc().collection("members");
 }
 
+function invitesCollection() {
+  return cafeDoc().collection("invites");
+}
+
 function receiptRef(id) {
   return receiptsCollection().doc(id);
 }
@@ -354,7 +383,9 @@ function subscribeReceipts() {
 function subscribeOrders() {
   if (state.orderUnsubscribe) state.orderUnsubscribe();
 
+  const visibleSince = Date.now() - ORDER_HISTORY_DAYS * DAY_MILLIS;
   state.orderUnsubscribe = ordersCollection()
+    .where("createdAt", ">=", visibleSince)
     .orderBy("createdAt", "desc")
     .onSnapshot((snapshot) => {
       state.orders = snapshot.docs.map((doc) => normalizeOrder(doc));
@@ -474,17 +505,19 @@ function renderAll() {
 }
 
 function renderOrders() {
-  const openOrders = state.orders
+  const visibleSince = Date.now() - ORDER_HISTORY_DAYS * DAY_MILLIS;
+  const recentOrders = state.orders.filter((order) => order.createdAt >= visibleSince);
+  const openOrders = recentOrders
     .filter((order) => !order.completed)
     .sort((a, b) => b.createdAt - a.createdAt);
-  const doneOrders = state.orders
+  const doneOrders = recentOrders
     .filter((order) => order.completed)
     .sort((a, b) => b.completedAt - a.completedAt || b.createdAt - a.createdAt)
     .slice(0, 12);
   const visibleOrders = openOrders.concat(doneOrders);
 
   els.openOrdersCount.textContent = openOrders.length.toString();
-  els.doneOrdersCount.textContent = state.orders.filter((order) => order.completed).length.toString();
+  els.doneOrdersCount.textContent = recentOrders.filter((order) => order.completed).length.toString();
 
   if (visibleOrders.length === 0) {
     els.ordersBoard.innerHTML = `
@@ -1102,8 +1135,23 @@ async function saveExistingReceipt(card) {
     updatedByUid: state.user.uid,
   };
 
-  await receiptRef(id).set(payload, { merge: true });
-  await updateMatchingOrders(receipt.receiptNumber || receipt.id, payload);
+  try {
+    await receiptRef(id).set(payload, { merge: true });
+  } catch (error) {
+    if (isPermissionError(error)) {
+      throw new Error("Nemaš permission za uređivanje računa. Otvori webapp s web admin kodom, ne waiter QR kodom, i provjeri da su Firestore rules objavljene.");
+    }
+    throw error;
+  }
+  try {
+    await updateMatchingOrders(receipt.receiptNumber || receipt.id, payload);
+  } catch (error) {
+    if (isPermissionError(error)) {
+      alert("Račun je spremljen, ali narudžbeni listić nije ažuriran jer web korisnik nema permission za barOrders. Spoji webapp s admin kodom i provjeri Firestore rules.");
+      return;
+    }
+    throw error;
+  }
 }
 
 async function deleteReceipt(card) {
@@ -1116,7 +1164,7 @@ async function deleteReceipt(card) {
   await deleteMatchingOrders(receipt.receiptNumber || receipt.id);
 }
 
-function removeReceiptItem(button) {
+async function removeReceiptItem(button) {
   const row = button.closest(".receipt-edit-item");
   const card = button.closest(".receipt-card");
   if (!row || !card) return;
@@ -1127,9 +1175,10 @@ function removeReceiptItem(button) {
   }
 
   const itemName = readField(row, "itemName").trim() || "ovu stavku";
-  if (!confirm(`Obrisati stavku "${itemName}" iz računa? Nakon toga klikni Spremi račun.`)) return;
+  if (!confirm(`Obrisati stavku "${itemName}" iz računa i narudžbe?`)) return;
   row.remove();
   updateReceiptTotalFromItems(card);
+  await saveExistingReceipt(card);
 }
 
 function updateReceiptTotalFromItems(card) {
@@ -1164,6 +1213,14 @@ async function updateMatchingOrders(orderNumber, payload) {
   await batch.commit();
 }
 
+function isPermissionError(error) {
+  const code = String(error?.code || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  return code.includes("permission-denied")
+    || message.includes("permission_denied")
+    || message.includes("missing or insufficient permissions");
+}
+
 async function deleteMatchingOrders(orderNumber) {
   if (!orderNumber) return;
   const snapshot = await ordersCollection().where("orderNumber", "==", orderNumber).get();
@@ -1171,6 +1228,58 @@ async function deleteMatchingOrders(orderNumber) {
   const batch = state.db.batch();
   snapshot.docs.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();
+}
+
+async function generateWaiterQr() {
+  if (!isAdminMode()) {
+    throw new Error("Samo web admin može generirati waiter QR.");
+  }
+  if (!state.payload?.apiKey || !state.payload?.projectId || !state.payload?.cafeId) {
+    throw new Error("Web admin nije spojen na Firebase kafić.");
+  }
+
+  const inviteCode = newInviteCode();
+  await invitesCollection().doc(inviteCode).set({
+    code: inviteCode,
+    active: true,
+    role: "waiter",
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+    createdByUid: state.user.uid,
+  });
+
+  const payload = {
+    apiKey: state.payload.apiKey,
+    appId: state.payload.appId || "",
+    projectId: state.payload.projectId,
+    cafeId: state.payload.cafeId,
+    inviteCode,
+    role: "waiter",
+  };
+  const encodedPayload = encodeBase64Url(JSON.stringify(payload));
+  const inviteUrl = `${window.location.origin}${window.location.pathname}?invite=${encodedPayload}`;
+
+  els.waiterManualCode.value = `${state.payload.cafeId}#${inviteCode}`;
+  els.waiterInviteLink.value = inviteUrl;
+  els.waiterQrPanel.classList.remove("hidden");
+
+  if (!window.QRCode?.toCanvas) {
+    throw new Error("QR alat se nije učitao. Ručni kod je generiran i može se upisati na Androidu.");
+  }
+
+  await new Promise((resolve, reject) => {
+    window.QRCode.toCanvas(
+      els.waiterQrCanvas,
+      inviteUrl,
+      { width: 240, margin: 2, color: { dark: "#1d2a24", light: "#ffffff" } },
+      (error) => error ? reject(error) : resolve(),
+    );
+  });
+}
+
+function newInviteCode() {
+  const bytes = new Uint8Array(8);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function saveStaffMember(row) {
@@ -1843,8 +1952,10 @@ els.connectButton.addEventListener("click", () => connect(els.invitePayload.valu
 els.clearSessionButton.addEventListener("click", async () => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WAITER_NAME_KEY);
+  localStorage.removeItem(WAITER_EMAIL_KEY);
   els.invitePayload.value = "";
   els.waiterNameInput.value = "";
+  els.waiterEmailInput.value = "";
   if (state.auth) {
     await state.auth.signOut();
   }
@@ -1884,7 +1995,14 @@ els.receiptsList.addEventListener("click", (event) => {
   const card = button.closest(".receipt-card");
   if (!card) return;
   if (button.dataset.action === "delete-receipt-item") {
-    removeReceiptItem(button);
+    button.disabled = true;
+    removeReceiptItem(button).catch((error) => {
+      console.error(error);
+      renderReceipts();
+      alert(error.message || "Brisanje stavke nije uspjelo. Provjeri Firestore rules.");
+    }).finally(() => {
+      button.disabled = false;
+    });
     return;
   }
   button.disabled = true;
@@ -2027,6 +2145,15 @@ els.importCatalogInput.addEventListener("change", (event) => {
   });
 });
 els.downloadBackupButton.addEventListener("click", downloadBackup);
+els.generateWaiterQrButton.addEventListener("click", () => {
+  els.generateWaiterQrButton.disabled = true;
+  generateWaiterQr().catch((error) => {
+    console.error(error);
+    alert(error.message || "Generiranje waiter QR-a nije uspjelo. Provjeri Firestore rules.");
+  }).finally(() => {
+    els.generateWaiterQrButton.disabled = false;
+  });
+});
 els.forgetWebCodeButton.addEventListener("click", () => {
   localStorage.removeItem(STORAGE_KEY);
   alert("Web admin kod je obrisan iz browsera.");
@@ -2044,6 +2171,10 @@ const savedName = localStorage.getItem(WAITER_NAME_KEY);
 if (savedName) {
   els.waiterNameInput.value = savedName;
 }
+const savedEmail = localStorage.getItem(WAITER_EMAIL_KEY);
+if (savedEmail) {
+  els.waiterEmailInput.value = savedEmail;
+}
 
 const inviteFromUrl = new URLSearchParams(window.location.search).get("invite")
   || new URLSearchParams(window.location.search).get("payload");
@@ -2052,8 +2183,8 @@ if (inviteFromUrl) {
   els.invitePayload.value = payloadUrl;
   try {
     const payload = parsePayload(payloadUrl);
-    if (payload.role === "waiter" && !els.waiterNameInput.value.trim()) {
-      setStatus("Waiter QR je učitan. Upiši ime konobara i klikni Spoji se.");
+    if (payload.role === "waiter" && (!els.waiterNameInput.value.trim() || !els.waiterEmailInput.value.trim())) {
+      setStatus("Waiter QR je učitan. Upiši ime i e-mail konobara pa klikni Spoji se. Lozinka nije potrebna.");
     } else {
       connect(payloadUrl);
     }

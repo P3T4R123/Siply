@@ -36,6 +36,14 @@ service cloud.firestore {
         && invite(cafeId, request.resource.data.inviteCode).data.role == "admin";
     }
 
+    function hasValidWaiterInvite(cafeId) {
+      return signedIn()
+        && request.resource.data.inviteCode is string
+        && exists(/databases/$(database)/documents/cafes/$(cafeId)/invites/$(request.resource.data.inviteCode))
+        && invite(cafeId, request.resource.data.inviteCode).data.active == true
+        && invite(cafeId, request.resource.data.inviteCode).data.role == "waiter";
+    }
+
     match /cafes/{cafeId} {
       allow create: if signedIn()
         && request.resource.data.ownerUid == request.auth.uid
@@ -63,7 +71,8 @@ service cloud.firestore {
             )
             || (
               request.resource.data.role == "waiter"
-              && exists(/databases/$(database)/documents/cafes/$(cafeId))
+              && request.resource.data.email is string
+              && hasValidWaiterInvite(cafeId)
             )
           );
 

@@ -161,7 +161,7 @@ fun PosApp(
     onRefreshWebAdminInvite: suspend () -> String?,
     onRefreshCloudCatalog: () -> Unit,
     onJoinCafeAsWaiter: suspend (String, String, String) -> String?,
-    onSignInWithGoogle: suspend () -> Pair<String, String>?,
+    onSignInWithGoogle: suspend () -> Triple<String, String, String?>?,
     onForgetCloudConnection: () -> Unit,
     onRestoreBackup: suspend (String) -> Boolean,
     onExportResult: (Boolean, String) -> Unit,
@@ -202,6 +202,12 @@ fun PosApp(
 
     LaunchedEffect(isWaiter) {
         if (isWaiter && (selectedTab == MainTab.Dashboard || selectedTab == MainTab.History)) {
+            selectedTab = MainTab.Products
+        }
+    }
+
+    LaunchedEffect(uiState.cloudCafeName) {
+        if (uiState.cloudCafeName.isNotBlank() && selectedTab == MainTab.Settings) {
             selectedTab = MainTab.Products
         }
     }
@@ -733,7 +739,7 @@ private fun SettingsTab(
     onRefreshWebAdminInvite: suspend () -> String?,
     onRefreshCloudCatalog: () -> Unit,
     onJoinCafeAsWaiter: suspend (String, String, String) -> String?,
-    onSignInWithGoogle: suspend () -> Pair<String, String>?,
+    onSignInWithGoogle: suspend () -> Triple<String, String, String?>?,
     onForgetCloudConnection: () -> Unit,
     onRestoreBackup: suspend (String) -> Boolean,
     buildPriceListExportPayload: suspend () -> ExportPayload?,
@@ -1229,7 +1235,11 @@ private fun SettingsTab(
                                             if (profile.first.isNotBlank()) waiterName = profile.first
                                             waiterEmail = profile.second
                                             onlineStatusSuccess = true
-                                            onlineStatusMessage = "Google račun je prijavljen. Sada skeniraj QR ili upiši kod kafića."
+                                            onlineStatusMessage = if (profile.third != null) {
+                                                "Automatski si spojen na ${profile.third}."
+                                            } else {
+                                                "Google račun je prijavljen. Za prvo povezivanje skeniraj QR ili upiši kod kafića."
+                                            }
                                         } else {
                                             onlineStatusSuccess = false
                                             onlineStatusMessage = "Google prijava nije dovršena. Možeš pokušati ponovno ili nastaviti bez Googlea."

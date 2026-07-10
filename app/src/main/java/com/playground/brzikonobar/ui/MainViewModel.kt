@@ -755,10 +755,17 @@ class MainViewModel(
         }
     }
 
-    suspend fun signInWithGoogle(idToken: String): Pair<String, String>? = runCatching {
+    suspend fun signInWithGoogle(idToken: String): Triple<String, String, String?>? = runCatching {
         repository.signInWithGoogle(idToken)
     }.onSuccess {
-        _messages.emit("Google račun je uspješno prijavljen.")
+        val cafeName = it.third
+        _messages.emit(
+            if (cafeName != null) {
+                "Google račun je prijavljen i automatski spojen na $cafeName."
+            } else {
+                "Google račun je prijavljen. Za prvo povezivanje skeniraj QR ili upiši kod kafića."
+            },
+        )
     }.getOrElse {
         _messages.emit(it.message ?: "Google prijava nije uspjela.")
         null

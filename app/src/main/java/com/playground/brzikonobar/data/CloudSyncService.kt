@@ -119,10 +119,55 @@ class CloudSyncService(
         idToken: String,
     ): FirebaseUser {
         val credential = GoogleAuthProvider.getCredential(idToken, null)
-        val result = FirebaseAuth.getInstance(firebaseApp(config))
-            .signInWithCredential(credential)
-            .await()
+        val auth = FirebaseAuth.getInstance(firebaseApp(config))
+        val currentUser = auth.currentUser
+        val result = if (currentUser?.isAnonymous == true) {
+            runCatching {
+                currentUser.linkWithCredential(credential).await()
+            }.getOrElse {
+                auth.signInWithCredential(credential).await()
+            }
+        } else {
+            auth.signInWithCredential(credential).await()
+        }
         return result.user ?: error("Google prijava nije vratila korisnika.")
+    }
+
+    suspend fun findSingleCafeForCurrentUser(config: CloudConfig): CloudSession? {
+        val user = FirebaseAuth.getInstance(firebaseApp(config)).currentUser ?: return null
+        val memberships = firestore(config)
+            .collectionGroup("members")
+            .whereEqualTo("uid", user.uid)
+            .limit(2)
+            .get()
+            .await()
+            .documents
+
+        if (memberships.isEmpty()) return null
+        if (memberships.size > 1) {
+            error("Google račun pripada više kafića. Spoji se pozivnim kodom željenog kafića.")
+        }
+
+        val member = memberships.single()
+        val cafeRef = member.reference.parent.parent
+            ?: error("Članstvo nema povezan kafić.")
+        val cafe = cafeRef.get().await()
+        if (!cafe.exists()) return null
+
+        val role = member.getString("role").orEmpty().ifBlank { "waiter" }
+        val isAdmin = role == "admin"
+        return CloudSession(
+            cafeId = cafeRef.id,
+            cafeName = cafe.getString("name").orEmpty().ifBlank { "Siply kafić" },
+            userId = user.uid,
+            userName = member.getString("name").orEmpty().ifBlank {
+                user.displayName.orEmpty().ifBlank { user.email.orEmpty() }
+            },
+            userRole = role,
+            inviteCode = member.getString("inviteCode").orEmpty(),
+            canUseHouseAccount = isAdmin || (member.getBoolean("canUseHouseAccount") ?: false),
+            canUseMusic = isAdmin || (member.getBoolean("canUseMusic") ?: false),
+        )
     }
 
     fun defaultConfig(): CloudConfig =

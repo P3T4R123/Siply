@@ -698,16 +698,44 @@ class PosRepository(
         }
     }
 
-    suspend fun signInWithGoogle(idToken: String): Pair<String, String> {
+    suspend fun signInWithGoogle(idToken: String): Triple<String, String, String?> {
+        val stateBeforeSignIn = dao.getAppState()
+        val config = cloudSyncService.defaultConfig()
         val user = cloudSyncService.signInWithGoogle(
-            config = cloudSyncService.defaultConfig(),
+            config = config,
             idToken = idToken,
         )
         val email = user.email.orEmpty()
         if (email.isBlank()) {
             error("Google račun nema dostupnu e-mail adresu.")
         }
-        return user.displayName.orEmpty() to email
+
+        val existingSession = stateBeforeSignIn?.toCloudSessionOrNull()
+            ?.takeIf { it.userId == user.uid }
+        val session = existingSession ?: cloudSyncService.findSingleCafeForCurrentUser(config)
+
+        if (session != null) {
+            database.withTransaction {
+                val state = ensureSeededAndState(Instant.now(clock))
+                dao.upsertAppState(
+                    state.copy(
+                        cloudApiKey = config.apiKey,
+                        cloudAppId = config.appId,
+                        cloudProjectId = config.projectId,
+                        cloudCafeId = session.cafeId,
+                        cloudCafeName = session.cafeName,
+                        cloudUserId = session.userId,
+                        cloudUserName = session.userName,
+                        cloudUserRole = session.userRole,
+                        cloudInviteCode = session.inviteCode,
+                        canUseHouseAccount = session.canUseHouseAccount,
+                        canUseMusic = session.canUseMusic,
+                    ),
+                )
+            }
+        }
+
+        return Triple(user.displayName.orEmpty(), email, session?.cafeName)
     }
 
     suspend fun forgetCloudConnection() {

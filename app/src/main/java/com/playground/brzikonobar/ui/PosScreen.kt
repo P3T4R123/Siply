@@ -4002,6 +4002,7 @@ private fun ProductCard(
     modifier: Modifier = Modifier,
     showCategory: Boolean = false,
 ) {
+    val oledDark = MaterialTheme.colorScheme.background == Color.Black
     Card(
         onClick = onClick,
         modifier = modifier,
@@ -4021,12 +4022,7 @@ private fun ProductCard(
                         .height(118.dp)
                         .clip(RoundedCornerShape(22.dp))
                         .background(
-                            brush = Brush.linearGradient(
-                                colors = listOf(
-                                    Color(product.accentColor),
-                                    Color(product.accentColor).copy(alpha = 0.58f),
-                                ),
-                            ),
+                            if (oledDark) Color.Black else Color(product.accentColor),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -4037,6 +4033,7 @@ private fun ProductCard(
                         modifier = Modifier.fillMaxSize(),
                         imageShape = RoundedCornerShape(22.dp),
                         emojiSize = 42,
+                        removeWhiteBackground = oledDark,
                     )
                 }
 
@@ -4083,18 +4080,18 @@ private fun ProductThumbnail(
     modifier: Modifier = Modifier,
     imageShape: RoundedCornerShape = RoundedCornerShape(16.dp),
     emojiSize: Int = 24,
+    removeWhiteBackground: Boolean = MaterialTheme.colorScheme.background == Color.Black,
 ) {
-    val bitmap = remember(imageDataUrl) { decodeImageDataUrl(imageDataUrl) }
+    val bitmap = remember(imageDataUrl, removeWhiteBackground) {
+        decodeImageDataUrl(imageDataUrl)?.let { image ->
+            if (removeWhiteBackground) removeWhitePhotoBackground(image) else image
+        }
+    }
     Box(
         modifier = modifier
             .clip(imageShape)
             .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(accentColor),
-                        Color(accentColor).copy(alpha = 0.58f),
-                    ),
-                ),
+                if (removeWhiteBackground) Color.Black else Color(accentColor),
             ),
         contentAlignment = Alignment.Center,
     ) {
@@ -4109,6 +4106,61 @@ private fun ProductThumbnail(
             Text(text = emoji, fontSize = emojiSize.sp)
         }
     }
+}
+
+/**
+ * Product photos commonly have a white studio background. In OLED dark mode we
+ * remove only near-white pixels connected to an image edge, preserving white
+ * details inside the bottle label while showing the product on true black.
+ */
+private fun removeWhitePhotoBackground(bitmap: Bitmap): Bitmap {
+    val width = bitmap.width
+    val height = bitmap.height
+    if (width <= 0 || height <= 0) return bitmap
+
+    val pixels = IntArray(width * height)
+    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+    val visited = BooleanArray(pixels.size)
+    val queue = IntArray(pixels.size)
+    var head = 0
+    var tail = 0
+
+    fun isNearWhite(color: Int): Boolean {
+        val alpha = color ushr 24 and 0xFF
+        val red = color ushr 16 and 0xFF
+        val green = color ushr 8 and 0xFF
+        val blue = color and 0xFF
+        return alpha > 0 && red >= 222 && green >= 222 && blue >= 222
+    }
+
+    fun add(index: Int) {
+        if (!visited[index] && isNearWhite(pixels[index])) {
+            visited[index] = true
+            queue[tail++] = index
+        }
+    }
+
+    for (x in 0 until width) {
+        add(x)
+        add((height - 1) * width + x)
+    }
+    for (y in 1 until height - 1) {
+        add(y * width)
+        add(y * width + width - 1)
+    }
+
+    while (head < tail) {
+        val index = queue[head++]
+        pixels[index] = pixels[index] and 0x00FFFFFF
+        val x = index % width
+        val y = index / width
+        if (x > 0) add(index - 1)
+        if (x < width - 1) add(index + 1)
+        if (y > 0) add(index - width)
+        if (y < height - 1) add(index + width)
+    }
+
+    return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
 }
 
 @Composable

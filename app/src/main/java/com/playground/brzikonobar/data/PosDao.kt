@@ -431,6 +431,9 @@ interface PosDao {
     @Query("SELECT * FROM receipts ORDER BY createdAt DESC, id DESC LIMIT 1")
     suspend fun getLastReceipt(): ReceiptEntity?
 
+    @Query("SELECT * FROM receipts WHERE receiptNumber IN (:receiptNumbers)")
+    suspend fun getReceiptsByNumbers(receiptNumbers: List<String>): List<ReceiptEntity>
+
     @Query("DELETE FROM receipt_items WHERE receiptId = :receiptId")
     suspend fun deleteItemsForReceipt(receiptId: Long)
 

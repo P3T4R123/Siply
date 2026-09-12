@@ -20,6 +20,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -276,10 +277,17 @@ class PosRepository(
             val config = state.toCloudConfigOrNull() ?: return@flatMapLatest flowOf(emptyList())
             val session = state.toCloudSessionOrNull() ?: return@flatMapLatest flowOf(emptyList())
             if (session.userRole != "admin") {
-                return@flatMapLatest flowOf(emptyList())
+                return@flatMapLatest cloudSyncService.observeReceiptDeletions(config, session).map { deletions ->
+                    removeLocallyDeletedReceipts(deletions.map { it.receiptNumber })
+                    emptyList()
+                }
             }
 
-            cloudSyncService.observeReceipts(config, session).map { rows ->
+            combine(
+                cloudSyncService.observeReceipts(config, session),
+                cloudSyncService.observeReceiptDeletions(config, session),
+            ) { rows, deletions -> rows to deletions }.map { (rows, deletions) ->
+                removeLocallyDeletedReceipts(deletions.map { it.receiptNumber })
                 val inventoryChanged = applyWaiterReceiptsToInventory(
                     cafeId = session.cafeId,
                     receipts = rows,
@@ -1595,6 +1603,33 @@ class PosRepository(
             }
 
             newProcessed.isNotEmpty()
+        }
+    }
+
+    /**
+     * Android receipts are deliberately stored offline. The web panel records a
+     * bounded deletion log on the cafe document, allowing this device to remove
+     * the matching local receipt (and restore its stock) after a web deletion.
+     */
+    private suspend fun removeLocallyDeletedReceipts(receiptNumbers: List<String>) {
+        val uniqueNumbers = receiptNumbers.map(String::trim).filter(String::isNotEmpty).distinct()
+        if (uniqueNumbers.isEmpty()) return
+
+        database.withTransaction {
+            val receipts = dao.getReceiptsByNumbers(uniqueNumbers)
+            if (receipts.isEmpty()) return@withTransaction
+
+            val nowMillis = Instant.now(clock).toEpochMilli()
+            receipts.forEach { receipt ->
+                val items = dao.getReceiptItemsForReceipt(receipt.id)
+                adjustInventoryForReceiptItems(
+                    items = items,
+                    multiplier = 1,
+                    changedAtMillis = nowMillis,
+                )
+                dao.deleteItemsForReceipt(receipt.id)
+                dao.deleteReceipt(receipt)
+            }
         }
     }
 

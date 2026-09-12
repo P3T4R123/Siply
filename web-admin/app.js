@@ -1160,8 +1160,51 @@ async function deleteReceipt(card) {
   if (!receipt) return;
   if (!confirm(`Obrisati račun "${receipt.receiptNumber || receipt.id}"?`)) return;
 
-  await receiptRef(id).delete();
+  await deleteReceiptEverywhere(id, receipt.receiptNumber || receipt.id);
   await deleteMatchingOrders(receipt.receiptNumber || receipt.id);
+}
+
+async function deleteReceiptEverywhere(id, receiptNumber) {
+  const normalizedNumber = String(receiptNumber || id).trim();
+  const cafe = cafeDoc();
+  const receipt = receiptRef(id);
+
+  // The Android POS is offline-first. Persisting a small deletion log on the
+  // cafe document lets every device remove its local copy on the next sync.
+  await state.db.runTransaction(async (transaction) => {
+    const cafeSnapshot = await transaction.get(cafe);
+    const existingLog = Array.isArray(cafeSnapshot.data()?.receiptDeletionLog)
+      ? cafeSnapshot.data().receiptDeletionLog
+      : [];
+    const nextLog = [
+      ...existingLog.filter((entry) => entry?.receiptNumber !== normalizedNumber),
+      { receiptNumber: normalizedNumber, deletedAt: Date.now() },
+    ].slice(-500);
+
+    transaction.update(cafe, { receiptDeletionLog: nextLog });
+    transaction.delete(receipt);
+  });
+}
+
+async function recordReceiptDeletions(receipts) {
+  const numbers = receipts
+    .map((receipt) => String(receipt.receiptNumber || receipt.id || "").trim())
+    .filter(Boolean);
+  if (!numbers.length) return;
+
+  const cafe = cafeDoc();
+  await state.db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(cafe);
+    const existingLog = Array.isArray(snapshot.data()?.receiptDeletionLog)
+      ? snapshot.data().receiptDeletionLog
+      : [];
+    const removed = new Set(numbers);
+    const nextLog = [
+      ...existingLog.filter((entry) => !removed.has(entry?.receiptNumber)),
+      ...numbers.map((receiptNumber) => ({ receiptNumber, deletedAt: Date.now() })),
+    ].slice(-500);
+    transaction.update(cafe, { receiptDeletionLog: nextLog });
+  });
 }
 
 async function removeReceiptItem(button) {
@@ -1352,6 +1395,7 @@ async function resetAllReceipts() {
     while (true) {
       const snapshot = await receiptsCollection().limit(450).get();
       if (snapshot.empty) break;
+      await recordReceiptDeletions(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
       const batch = state.db.batch();
       snapshot.docs.forEach((doc) => batch.delete(doc.ref));
       await batch.commit();

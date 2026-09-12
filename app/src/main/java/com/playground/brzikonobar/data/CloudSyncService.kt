@@ -111,6 +111,12 @@ data class CloudReceiptItem(
     val itemsSummary: String,
 )
 
+/** A receipt removed by an admin from the web panel. Kept on the cafe document
+ * so every signed-in device can remove its offline copy as soon as it reconnects. */
+data class CloudReceiptDeletion(
+    val receiptNumber: String,
+)
+
 class CloudSyncService(
     private val context: Context,
 ) {
@@ -618,6 +624,42 @@ class CloudSyncService(
                 }
             )
         }
+
+        awaitClose {
+            registration.remove()
+        }
+    }
+
+    fun observeReceiptDeletions(
+        config: CloudConfig,
+        session: CloudSession,
+    ): Flow<List<CloudReceiptDeletion>> = callbackFlow {
+        if (session.cafeId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val registration = firestore(config)
+            .collection("cafes")
+            .document(session.cafeId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null || !snapshot.exists()) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+
+                val deletions = (snapshot.get("receiptDeletionLog") as? List<*>)
+                    .orEmpty()
+                    .mapNotNull { raw ->
+                        val row = raw as? Map<*, *> ?: return@mapNotNull null
+                        val receiptNumber = row["receiptNumber"] as? String ?: return@mapNotNull null
+                        receiptNumber.trim().takeIf { it.isNotEmpty() }
+                    }
+                    .distinct()
+                    .map(::CloudReceiptDeletion)
+                trySend(deletions)
+            }
 
         awaitClose {
             registration.remove()

@@ -89,6 +89,20 @@
         <section class="panel">
           <div class="section-header compact">
             <div>
+              <h2>Ekipa i admin</h2>
+              <p class="status">Prodaja svih konobara i admina za odabrani period.</p>
+            </div>
+          </div>
+          <section class="stats-grid compact-stats">
+            <article class="stat"><span>Promet</span><strong id="staffGross">0,00 EUR</strong></article>
+            <article class="stat"><span>Računa</span><strong id="staffReceipts">0</strong></article>
+            <article class="stat"><span>Prodano</span><strong id="staffItems">0 kom</strong></article>
+            <article class="stat"><span>Za naplatu</span><strong id="staffPayable">0,00 EUR</strong></article>
+          </section>
+        </section>
+        <section class="panel">
+          <div class="section-header compact">
+            <div>
               <h2>Kontrola po konobarima</h2>
               <p class="status">Otkucano minus isključene oznake = iznos koji treba predati.</p>
             </div>
@@ -97,23 +111,37 @@
         </section>
         <section class="two-column">
           <article class="panel">
-            <div class="section-header compact"><h2>Po konobarima za naplatu</h2></div>
+            <div class="section-header compact"><h2>Usporedba prometa po konobaru</h2></div>
             <div id="waiterChart" class="bar-list"></div>
           </article>
           <article class="panel">
-            <div class="section-header compact"><h2>Po kategorijama za naplatu</h2></div>
-            <div id="categoryChart" class="bar-list"></div>
+            <div class="section-header compact"><h2>Usporedba količine po konobaru</h2></div>
+            <div id="waiterItemsChart" class="bar-list"></div>
           </article>
         </section>
         <section class="two-column">
           <article class="panel">
-            <div class="section-header compact"><h2>Top artikli za naplatu</h2></div>
-            <div id="productChart" class="bar-list"></div>
+            <div class="section-header compact"><h2>Prodaja po kategorijama</h2></div>
+            <div id="categoryChart" class="bar-list"></div>
           </article>
           <article class="panel">
-            <div class="section-header compact"><h2>Promet po satu za naplatu</h2></div>
+            <div class="section-header compact"><h2>Top artikli ekipe</h2></div>
+            <div id="productChart" class="bar-list"></div>
+          </article>
+        </section>
+        <section class="two-column">
+          <article class="panel">
+            <div class="section-header compact"><h2>Promet po satu</h2></div>
             <div id="hourChart" class="bar-list"></div>
           </article>
+          <article class="panel">
+            <div class="section-header compact"><h2>Računi s bilješkom</h2></div>
+            <div id="notedReceipts" class="noted-receipts"></div>
+          </article>
+        </section>
+        <section class="panel">
+          <div class="section-header compact"><h2>Analitika po konobaru</h2></div>
+          <div id="waiterAnalytics" class="waiter-analytics"></div>
         </section>
       </section>
 
@@ -319,6 +347,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="./app.js?v=20260710-email-onboarding"></script>
+  <script src="./app.js?v=20260914-complete-analytics"></script>
 </body>
 </html>

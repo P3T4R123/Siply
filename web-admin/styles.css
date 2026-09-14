@@ -250,6 +250,10 @@ button:disabled {
   font-size: clamp(22px, 2vw, 30px);
 }
 
+.compact-stats .stat {
+  padding: 15px 18px;
+}
+
 .dashboard-toggle-row {
   display: flex;
   align-items: center;
@@ -302,6 +306,77 @@ button:disabled {
   padding-bottom: 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.waiter-analytics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.waiter-analytics-card,
+.noted-receipt {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcf8;
+  padding: 14px;
+}
+
+.waiter-analytics-head,
+.noted-receipt,
+.noted-receipt > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.waiter-analytics-head h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.waiter-analytics-card p,
+.noted-receipt span,
+.noted-receipt p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.waiter-analytics-card p {
+  margin: 7px 0 12px;
+}
+
+.top-product-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.top-product-pills span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  font-size: 12px;
+}
+
+.noted-receipts {
+  display: grid;
+  gap: 8px;
+}
+
+.noted-receipt {
+  display: grid;
+  grid-template-columns: 1fr auto;
+}
+
+.noted-receipt > div {
+  display: grid;
+  gap: 3px;
+}
+
+.noted-receipt p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
 }
 
 .two-column {

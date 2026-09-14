@@ -55,11 +55,18 @@ const els = {
   dashAverage: document.querySelector("#dashAverage"),
   dashHouse: document.querySelector("#dashHouse"),
   dashMusic: document.querySelector("#dashMusic"),
+  staffGross: document.querySelector("#staffGross"),
+  staffReceipts: document.querySelector("#staffReceipts"),
+  staffItems: document.querySelector("#staffItems"),
+  staffPayable: document.querySelector("#staffPayable"),
   waiterSummary: document.querySelector("#waiterSummary"),
   waiterChart: document.querySelector("#waiterChart"),
+  waiterItemsChart: document.querySelector("#waiterItemsChart"),
   categoryChart: document.querySelector("#categoryChart"),
   productChart: document.querySelector("#productChart"),
   hourChart: document.querySelector("#hourChart"),
+  notedReceipts: document.querySelector("#notedReceipts"),
+  waiterAnalytics: document.querySelector("#waiterAnalytics"),
 
   ordersBoard: document.querySelector("#ordersBoard"),
   openOrdersCount: document.querySelector("#openOrdersCount"),
@@ -655,11 +662,21 @@ function renderDashboard() {
   els.dashHouse.textContent = formatEuro(houseTotal);
   if (els.dashMusic) els.dashMusic.textContent = formatEuro(musicTotal);
 
+  const soldItems = receipts.reduce((totalItems, receipt) => totalItems + receipt.items
+    .reduce((receiptItems, item) => receiptItems + Number(item.quantity || 0), 0), 0);
+  if (els.staffGross) els.staffGross.textContent = formatEuro(grossTotal);
+  if (els.staffReceipts) els.staffReceipts.textContent = `${receipts.length}`;
+  if (els.staffItems) els.staffItems.textContent = `${soldItems} kom`;
+  if (els.staffPayable) els.staffPayable.textContent = formatEuro(total);
+
   if (els.waiterSummary) renderWaiterSummary(groupWaiterControlTotals(receipts, includeHouse, includeMusic));
-  renderBars(els.waiterChart, groupReceiptTotals(billableReceipts, displayNameForReceipt), formatEuro);
+  renderBars(els.waiterChart, groupReceiptTotals(receipts, displayNameForReceipt), formatEuro);
+  renderBars(els.waiterItemsChart, groupWaiterItemTotals(receipts), (value) => `${value} kom`);
   renderBars(els.categoryChart, groupItemTotals(billableReceipts, categoryForItem), formatEuro);
   renderBars(els.productChart, groupItemTotals(billableReceipts, (item) => item.name || "Artikl"), formatEuro, 10);
   renderBars(els.hourChart, groupReceiptTotals(billableReceipts, (receipt) => `${new Date(receipt.createdAt).getHours().toString().padStart(2, "0")}:00`), formatEuro);
+  renderNotedReceipts(receipts);
+  renderWaiterAnalytics(receipts);
 }
 
 function isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic) {
@@ -1162,6 +1179,73 @@ async function deleteReceipt(card) {
 
   await deleteReceiptEverywhere(id, receipt.receiptNumber || receipt.id);
   await deleteMatchingOrders(receipt.receiptNumber || receipt.id);
+}
+
+function groupWaiterItemTotals(receipts) {
+  const grouped = new Map();
+  receipts.forEach((receipt) => {
+    const label = displayNameForReceipt(receipt);
+    const quantity = receipt.items.reduce((total, item) => total + Number(item.quantity || 0), 0);
+    grouped.set(label, (grouped.get(label) || 0) + quantity);
+  });
+  return Array.from(grouped.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value || a.label.localeCompare(b.label, "hr"));
+}
+
+function renderNotedReceipts(receipts) {
+  if (!els.notedReceipts) return;
+  const noted = receipts
+    .filter((receipt) => receipt.note.trim())
+    .sort((a, b) => b.createdAt - a.createdAt);
+  if (noted.length === 0) {
+    els.notedReceipts.innerHTML = `<div class="empty">Nema računa s bilješkom za odabrani period.</div>`;
+    return;
+  }
+  els.notedReceipts.innerHTML = noted.slice(0, 12).map((receipt) => `
+    <div class="noted-receipt">
+      <div><strong>${escapeHtml(receipt.receiptNumber || receipt.id)}</strong><span>${escapeHtml(displayNameForReceipt(receipt))} • ${formatDateTime(receipt.createdAt)}</span></div>
+      <strong>${formatEuro(receipt.totalCents)}</strong>
+      <p>${escapeHtml(receipt.note)}</p>
+    </div>
+  `).join("");
+}
+
+function renderWaiterAnalytics(receipts) {
+  if (!els.waiterAnalytics) return;
+  const grouped = new Map();
+  receipts.forEach((receipt) => {
+    const label = displayNameForReceipt(receipt);
+    if (!grouped.has(label)) grouped.set(label, { label, revenue: 0, receipts: 0, items: 0, products: new Map() });
+    const row = grouped.get(label);
+    row.revenue += Number(receipt.totalCents || 0);
+    row.receipts += 1;
+    receipt.items.forEach((item) => {
+      const quantity = Number(item.quantity || 0);
+      row.items += quantity;
+      const product = item.name || "Artikl";
+      row.products.set(product, (row.products.get(product) || 0) + quantity);
+    });
+  });
+  const rows = Array.from(grouped.values()).sort((a, b) => b.revenue - a.revenue || a.label.localeCompare(b.label, "hr"));
+  if (rows.length === 0) {
+    els.waiterAnalytics.innerHTML = `<div class="empty">Nema prodaje osoblja za odabrani period.</div>`;
+    return;
+  }
+  els.waiterAnalytics.innerHTML = rows.map((row) => {
+    const products = Array.from(row.products.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "hr"))
+      .slice(0, 3)
+      .map(([name, quantity]) => `<span>${escapeHtml(name)} <strong>×${quantity}</strong></span>`)
+      .join("");
+    return `
+      <article class="waiter-analytics-card">
+        <div class="waiter-analytics-head"><h3>${escapeHtml(row.label)}</h3><strong>${formatEuro(row.revenue)}</strong></div>
+        <p>${row.receipts} računa • ${row.items} prodano</p>
+        <div class="top-product-pills">${products || "<span>Nema stavki</span>"}</div>
+      </article>
+    `;
+  }).join("");
 }
 
 async function deleteReceiptEverywhere(id, receiptNumber) {

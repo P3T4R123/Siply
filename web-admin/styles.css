@@ -379,6 +379,61 @@ button:disabled {
   margin: 2px 0 0;
 }
 
+.sales-ranking {
+  display: grid;
+  gap: 7px;
+}
+
+.sales-ranking-row {
+  display: grid;
+  grid-template-columns: 48px minmax(180px, 1.5fr) minmax(140px, 1fr) minmax(110px, .7fr) minmax(120px, .8fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fbfcf8;
+}
+
+.sales-ranking-row span {
+  color: var(--muted);
+}
+
+.sales-ranking-head {
+  border: 0;
+  padding: 3px 14px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+@media (max-width: 720px) {
+  .sales-ranking-head {
+    display: none;
+  }
+
+  .sales-ranking-row {
+    grid-template-columns: 34px 1fr auto;
+  }
+
+  .sales-ranking-row span {
+    grid-column: 2;
+  }
+
+  .sales-ranking-row strong:nth-child(4) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .sales-ranking-row strong:nth-child(5) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+}
+
 .two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

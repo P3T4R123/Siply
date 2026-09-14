@@ -67,6 +67,7 @@ const els = {
   hourChart: document.querySelector("#hourChart"),
   notedReceipts: document.querySelector("#notedReceipts"),
   waiterAnalytics: document.querySelector("#waiterAnalytics"),
+  allProductsAnalytics: document.querySelector("#allProductsAnalytics"),
 
   ordersBoard: document.querySelector("#ordersBoard"),
   openOrdersCount: document.querySelector("#openOrdersCount"),
@@ -677,6 +678,7 @@ function renderDashboard() {
   renderBars(els.hourChart, groupReceiptTotals(billableReceipts, (receipt) => `${new Date(receipt.createdAt).getHours().toString().padStart(2, "0")}:00`), formatEuro);
   renderNotedReceipts(receipts);
   renderWaiterAnalytics(receipts);
+  renderAllProductsAnalytics(receipts);
 }
 
 function isReceiptIncludedInDashboard(receipt, includeHouse, includeMusic) {
@@ -1246,6 +1248,57 @@ function renderWaiterAnalytics(receipts) {
       </article>
     `;
   }).join("");
+}
+
+function renderAllProductsAnalytics(receipts) {
+  if (!els.allProductsAnalytics) return;
+  const sales = new Map();
+  receipts.forEach((receipt) => {
+    receipt.items.forEach((item) => {
+      const key = item.cloudProductId || item.productId || item.name || "Artikl";
+      const current = sales.get(key) || { quantity: 0, revenue: 0 };
+      current.quantity += Number(item.quantity || 0);
+      current.revenue += Number(item.lineTotalCents || 0);
+      sales.set(key, current);
+    });
+  });
+
+  const catalogRows = state.products
+    .filter((product) => product.isActive !== false)
+    .map((product) => {
+      const stats = sales.get(product.id) || sales.get(product.name) || { quantity: 0, revenue: 0 };
+      return {
+        name: product.name || "Artikl",
+        category: product.categoryName || "Ostalo",
+        quantity: stats.quantity,
+        revenue: stats.revenue,
+      };
+    });
+  const catalogKeys = new Set(state.products.flatMap((product) => [product.id, product.name]));
+  sales.forEach((stats, key) => {
+    if (!catalogKeys.has(key)) {
+      const item = receipts.flatMap((receipt) => receipt.items).find((row) => (row.cloudProductId || row.productId || row.name) === key);
+      catalogRows.push({ name: item?.name || "Obrisani artikl", category: "Raniji cjenik", ...stats });
+    }
+  });
+
+  catalogRows.sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue || a.name.localeCompare(b.name, "hr"));
+  if (catalogRows.length === 0) {
+    els.allProductsAnalytics.innerHTML = `<div class="empty">Nema artikala u cjeniku.</div>`;
+    return;
+  }
+  els.allProductsAnalytics.innerHTML = `
+    <div class="sales-ranking-row sales-ranking-head"><span>#</span><span>Artikl</span><span>Kategorija</span><span>Prodano</span><span>Promet</span></div>
+    ${catalogRows.map((row, index) => `
+      <div class="sales-ranking-row">
+        <strong>${index + 1}</strong>
+        <strong>${escapeHtml(row.name)}</strong>
+        <span>${escapeHtml(row.category)}</span>
+        <strong>${row.quantity} kom</strong>
+        <strong>${formatEuro(row.revenue)}</strong>
+      </div>
+    `).join("")}
+  `;
 }
 
 async function deleteReceiptEverywhere(id, receiptNumber) {

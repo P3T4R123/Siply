@@ -283,7 +283,6 @@ class CloudSyncService(
     suspend fun joinCafeAsWaiter(
         payload: CloudInvitePayload,
         waiterName: String,
-        waiterEmail: String,
     ): CloudSession {
         val config = CloudConfig(
             apiKey = payload.apiKey,
@@ -331,7 +330,8 @@ class CloudSyncService(
             mapOf(
                 "uid" to user.uid,
                 "name" to waiterName,
-                "email" to waiterEmail,
+                // Compatibility with deployed rules; joining only needs a name and QR.
+                "email" to "",
                 "role" to "waiter",
                 "canUseHouseAccount" to false,
                 "canUseMusic" to false,

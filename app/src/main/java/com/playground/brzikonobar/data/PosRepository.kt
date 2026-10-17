@@ -672,13 +672,11 @@ class PosRepository(
     suspend fun joinCafeAsWaiter(
         rawInvitePayload: String,
         waiterName: String,
-        waiterEmail: String,
     ) {
         val payload = cloudSyncService.parseInvitePayload(rawInvitePayload)
         val session = cloudSyncService.joinCafeAsWaiter(
             payload = payload,
             waiterName = waiterName.trim(),
-            waiterEmail = waiterEmail.trim().lowercase(),
         )
         val config = CloudConfig(
             apiKey = payload.apiKey,

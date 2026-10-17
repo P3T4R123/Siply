@@ -1,6 +1,5 @@
 const STORAGE_KEY = "siply.webAdmin.payload";
 const WAITER_NAME_KEY = "siply.web.waiterName";
-const WAITER_EMAIL_KEY = "siply.web.waiterEmail";
 const ORDER_HISTORY_DAYS = 5;
 const DAY_MILLIS = 24 * 60 * 60 * 1000;
 
@@ -31,7 +30,6 @@ const els = {
   adminPanel: document.querySelector("#adminPanel"),
   invitePayload: document.querySelector("#invitePayload"),
   waiterNameInput: document.querySelector("#waiterNameInput"),
-  waiterEmailInput: document.querySelector("#waiterEmailInput"),
   connectButton: document.querySelector("#connectButton"),
   clearSessionButton: document.querySelector("#clearSessionButton"),
   loginStatus: document.querySelector("#loginStatus"),
@@ -220,24 +218,20 @@ async function connect(rawPayload) {
       throw new Error("Ovaj browser je već spojen s drugom ulogom. Klikni Odjava ili Očisti spremljeno pa pokušaj ponovno.");
     }
     const typedName = els.waiterNameInput.value.trim();
-    const typedEmail = els.waiterEmailInput.value.trim().toLowerCase();
     const memberName = role === "admin"
       ? (existingMember?.name || "Web Admin")
       : (existingMember?.name || typedName);
-    const memberEmail = existingMember?.email || typedEmail;
 
     if (role === "waiter" && !memberName) {
       throw new Error("Upiši ime konobara prije spajanja.");
-    }
-    if (role === "waiter" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(memberEmail)) {
-      throw new Error("Upiši valjanu e-mail adresu. Lozinka nije potrebna.");
     }
 
     if (!webMemberSnapshot.exists || role === "admin") {
       await webMemberRef.set({
         uid: state.user.uid,
         name: memberName,
-        email: memberEmail,
+        // Older deployed Firestore rules require a string; no email is collected.
+        email: existingMember?.email || "",
         role,
         canUseHouseAccount: role === "admin" || existingMember?.canUseHouseAccount === true,
         canUseMusic: role === "admin" || existingMember?.canUseMusic === true,
@@ -260,7 +254,6 @@ async function connect(rawPayload) {
 
     localStorage.setItem(STORAGE_KEY, rawPayload.trim());
     if (typedName) localStorage.setItem(WAITER_NAME_KEY, typedName);
-    if (typedEmail) localStorage.setItem(WAITER_EMAIL_KEY, typedEmail);
     state.cafeName = cafeSnapshot.data().name || "Siply kafić";
     els.cafeName.textContent = state.cafeName;
     els.settingsInfo.textContent = `Spojeno na ${state.cafeName}. Web korisnik: ${state.user.uid}`;
@@ -2133,10 +2126,9 @@ els.connectButton.addEventListener("click", () => connect(els.invitePayload.valu
 els.clearSessionButton.addEventListener("click", async () => {
   localStorage.removeItem(STORAGE_KEY);
   localStorage.removeItem(WAITER_NAME_KEY);
-  localStorage.removeItem(WAITER_EMAIL_KEY);
   els.invitePayload.value = "";
+  els.invitePayload.classList.remove("hidden");
   els.waiterNameInput.value = "";
-  els.waiterEmailInput.value = "";
   if (state.auth) {
     await state.auth.signOut();
   }
@@ -2352,10 +2344,7 @@ const savedName = localStorage.getItem(WAITER_NAME_KEY);
 if (savedName) {
   els.waiterNameInput.value = savedName;
 }
-const savedEmail = localStorage.getItem(WAITER_EMAIL_KEY);
-if (savedEmail) {
-  els.waiterEmailInput.value = savedEmail;
-}
+localStorage.removeItem("siply.web.waiterEmail");
 
 const inviteFromUrl = new URLSearchParams(window.location.search).get("invite")
   || new URLSearchParams(window.location.search).get("payload");
@@ -2364,8 +2353,10 @@ if (inviteFromUrl) {
   els.invitePayload.value = payloadUrl;
   try {
     const payload = parsePayload(payloadUrl);
-    if (payload.role === "waiter" && (!els.waiterNameInput.value.trim() || !els.waiterEmailInput.value.trim())) {
-      setStatus("Waiter QR je učitan. Upiši ime i e-mail konobara pa klikni Spoji se. Lozinka nije potrebna.");
+    els.invitePayload.classList.toggle("hidden", payload.role === "waiter");
+    if (payload.role === "waiter" && !els.waiterNameInput.value.trim()) {
+      setStatus("QR je učitan. Upiši ime konobara pa klikni Spoji se.");
+      els.waiterNameInput.focus();
     } else {
       connect(payloadUrl);
     }

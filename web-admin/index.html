@@ -18,13 +18,10 @@
       <div>
         <p class="eyebrow">Siply</p>
         <h1>Web aplikacija</h1>
-        <p class="muted">Zalijepi web admin kod za vlasnika ili waiter QR/kod za konobara. Ako si konobar, vidiš samo POS.</p>
+        <p class="muted">Za prijavu konobara skeniraj QR kod kafića i upiši ime. E-mail i lozinka nisu potrebni. Vlasnik se spaja web admin kodom.</p>
       </div>
       <label>Ime konobara
-        <input id="waiterNameInput" placeholder="Npr. Marko">
-      </label>
-      <label>E-mail konobara
-        <input id="waiterEmailInput" type="email" autocomplete="email" placeholder="marko@example.com">
+        <input id="waiterNameInput" autocomplete="name" placeholder="Npr. Marko">
       </label>
       <textarea id="invitePayload" rows="7" placeholder="Zalijepi kod ovdje ili otvori waiter QR link"></textarea>
       <div class="actions">
@@ -337,7 +334,7 @@
                 <h2>Waiter QR</h2>
               </div>
             </div>
-            <p class="muted small">Generiraj QR za spajanje novog konobara na ovaj kafić.</p>
+            <p class="muted small">Konobar skenira QR mobitelom i upiše ime. E-mail i lozinka nisu potrebni.</p>
             <div class="actions stacked">
               <button id="generateWaiterQrButton" class="primary">Generiraj waiter QR</button>
             </div>
@@ -355,7 +352,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="./app.js?v=20260914-all-products-ranking"></script>
+  <script src="./vendor/qrcode-1.5.3.min.js"></script>
+  <script src="./app.js?v=20261017-name-qr"></script>
 </body>
 </html>

@@ -100,6 +100,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import com.playground.siply.R
 import com.playground.siply.data.ExportPayload
 import com.playground.siply.data.LastReceiptInfo
 import com.playground.siply.formatCurrency
@@ -160,7 +161,7 @@ fun PosApp(
     onRefreshWaiterInvite: suspend () -> Boolean,
     onRefreshWebAdminInvite: suspend () -> String?,
     onRefreshCloudCatalog: () -> Unit,
-    onJoinCafeAsWaiter: suspend (String, String, String) -> String?,
+    onJoinCafeAsWaiter: suspend (String, String) -> String?,
     onSignInWithGoogle: suspend () -> Triple<String, String, String?>?,
     onForgetCloudConnection: () -> Unit,
     onRestoreBackup: suspend (String) -> Boolean,
@@ -738,7 +739,7 @@ private fun SettingsTab(
     onRefreshWaiterInvite: suspend () -> Boolean,
     onRefreshWebAdminInvite: suspend () -> String?,
     onRefreshCloudCatalog: () -> Unit,
-    onJoinCafeAsWaiter: suspend (String, String, String) -> String?,
+    onJoinCafeAsWaiter: suspend (String, String) -> String?,
     onSignInWithGoogle: suspend () -> Triple<String, String, String?>?,
     onForgetCloudConnection: () -> Unit,
     onRestoreBackup: suspend (String) -> Boolean,
@@ -757,7 +758,6 @@ private fun SettingsTab(
     var cafeName by rememberSaveable(uiState.cloudCafeName) { mutableStateOf(uiState.cloudCafeName) }
     var adminName by rememberSaveable(uiState.cloudUserName) { mutableStateOf(uiState.cloudUserName) }
     var waiterName by rememberSaveable { mutableStateOf("") }
-    var waiterEmail by rememberSaveable { mutableStateOf("") }
     var invitePayloadInput by rememberSaveable { mutableStateOf("") }
     var onlineActionLoading by rememberSaveable { mutableStateOf(false) }
     var onlineStatusMessage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -861,10 +861,10 @@ private fun SettingsTab(
                 onlineStatusMessage = "QR nije očitan. Pokušaj ponovno ili zalijepi payload ručno."
             }
 
-            waiterName.isBlank() || waiterEmail.isBlank() -> {
+            waiterName.isBlank() -> {
                 invitePayloadInput = scannedPayload
                 onlineStatusSuccess = false
-                onlineStatusMessage = "QR je očitan. Upiši ime i e-mail konobara pa klikni Spoji se."
+                onlineStatusMessage = context.getString(R.string.waiter_qr_enter_name)
             }
 
             else -> {
@@ -873,7 +873,7 @@ private fun SettingsTab(
                     onlineActionLoading = true
                     onlineStatusSuccess = null
                     onlineStatusMessage = "QR je očitan. Spajam konobara..."
-                    val errorMessage = onJoinCafeAsWaiter(scannedPayload, waiterName, waiterEmail)
+                    val errorMessage = onJoinCafeAsWaiter(scannedPayload, waiterName)
                     val success = errorMessage == null
                     onlineActionLoading = false
                     onlineStatusSuccess = success
@@ -1214,15 +1214,6 @@ private fun SettingsTab(
                                 label = { Text("Ime konobara") },
                                 singleLine = true,
                             )
-                            OutlinedTextField(
-                                value = waiterEmail,
-                                onValueChange = { waiterEmail = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("E-mail konobara") },
-                                supportingText = { Text("Služi za evidenciju. Lozinka nije potrebna.") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                                singleLine = true,
-                            )
                             FilledTonalButton(
                                 enabled = !onlineActionLoading,
                                 onClick = {
@@ -1233,7 +1224,6 @@ private fun SettingsTab(
                                         onlineActionLoading = false
                                         if (profile != null) {
                                             if (profile.first.isNotBlank()) waiterName = profile.first
-                                            waiterEmail = profile.second
                                             onlineStatusSuccess = true
                                             onlineStatusMessage = if (profile.third != null) {
                                                 "Automatski si spojen na ${profile.third}."
@@ -1278,7 +1268,7 @@ private fun SettingsTab(
                                     scope.launch {
                                         onlineActionLoading = true
                                         onlineStatusMessage = null
-                                        val errorMessage = onJoinCafeAsWaiter(invitePayloadInput, waiterName, waiterEmail)
+                                        val errorMessage = onJoinCafeAsWaiter(invitePayloadInput, waiterName)
                                         val success = errorMessage == null
                                         onlineActionLoading = false
                                         onlineStatusSuccess = success

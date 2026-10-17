@@ -10,6 +10,15 @@ Web admin je desktop panel za isti Firebase kafić koji koristi Android aplikaci
 4. Zalijepi web admin kod i klikni `Spoji web admin`.
 5. Koristi tabove `Dashboard`, `POS`, `Računi`, `Artikli` i `Settings`.
 
+## Spajanje konobara
+
+1. Admin u web postavkama generira waiter QR.
+2. Konobar skenira QR kamerom mobitela i otvori poveznicu.
+3. Upiše ime i klikne `Spoji se`. E-mail, Google račun i lozinka nisu potrebni.
+4. U Android aplikaciji može prvo upisati ime pa kliknuti `Skeniraj waiter QR`; nakon skeniranja spaja se automatski.
+
+Svaki uređaj zadržava vlastiti identitet konobara i dodijeljene ovlasti. Postojeći konobari ostaju povezani.
+
 ## GitHub Pages
 
 Ako je uključen GitHub Pages preko Actions workflowa, stranica ce biti dostupna na:

@@ -724,7 +724,6 @@ class MainViewModel(
     suspend fun joinCafeAsWaiter(
         invitePayload: String,
         waiterName: String,
-        waiterEmail: String,
     ): String? {
         if (invitePayload.isBlank()) {
             val message = "Skeniraj ili zalijepi QR payload."
@@ -736,15 +735,9 @@ class MainViewModel(
             _messages.emit(message)
             return message
         }
-        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(waiterEmail.trim()).matches()) {
-            val message = "Upiši valjanu e-mail adresu konobara. Lozinka nije potrebna."
-            _messages.emit(message)
-            return message
-        }
-
         return runCatching {
             withTimeout(25_000) {
-                repository.joinCafeAsWaiter(invitePayload, waiterName, waiterEmail)
+                repository.joinCafeAsWaiter(invitePayload, waiterName)
             }
             _messages.emit("Konobar je spojen na online kafić bez lozinke.")
             null

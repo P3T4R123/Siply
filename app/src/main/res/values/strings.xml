@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Siply</string>
+    <string name="waiter_qr_enter_name">QR je očitan. Upiši ime konobara pa klikni Spoji se.</string>
 </resources>

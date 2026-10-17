@@ -1,9 +1,10 @@
-const CACHE_NAME = "siply-pwa-v13-email-onboarding";
+const CACHE_NAME = "siply-pwa-v14-name-qr";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
-  "./app.js?v=20260710-email-onboarding",
+  "./app.js?v=20261017-name-qr",
+  "./vendor/qrcode-1.5.3.min.js",
   "./manifest.webmanifest",
   "./icons/siply-180.png",
   "./icons/siply-192.png",
